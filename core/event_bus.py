@@ -31,6 +31,7 @@ class Topic(str, Enum):
     FACE_DETECTED = "vision.face_detected"
     FACE_RECOGNIZED = "vision.face_recognized"
     SPEECH_STARTED = "audio.speech_started"
+    SPEECH_CAPTURED = "audio.speech_captured"
     SPEECH_TRANSCRIBED = "audio.speech_transcribed"
     COMMAND_ISSUED = "system.command_issued"
     SYSTEM_ERROR = "system.error"

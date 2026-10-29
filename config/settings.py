@@ -1,6 +1,6 @@
 """Centralized configuration. Values come from env vars (prefix AETHER_) or a .env file."""
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,8 +13,10 @@ class Settings(BaseSettings):
     frame_width: int = 640
     frame_height: int = 480
     similarity_threshold: float = Field(0.363, ge=0.0, le=1.0)
-    whisper_model: str = "small"
+    whisper_model: str = "base"
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
+    whisper_language: Optional[str] = None  # None = auto-detect
+    mic_device: Optional[int] = None  # None = system default
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
