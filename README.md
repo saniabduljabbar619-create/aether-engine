@@ -86,6 +86,22 @@ so a single bad frame can't flip an identity. `FACE_RECOGNIZED` fires once per p
 
 Privacy: embeddings are stored locally in `storage/reference_faces/` and git-ignored.
 
+## Voice
+
+```bash
+pip install faster-whisper sounddevice
+python -m examples.voice_demo --list-devices
+python -m examples.voice_demo            # speak; Ctrl+C to quit
+python -m examples.voice_demo --wav clip.wav
+```
+
+`audio/recorder.py` cuts the mic stream into phrases (adaptive-noise-floor VAD, pre-roll so first
+syllables aren't clipped, 700 ms hangover so pauses don't split a phrase). `audio/stt_engine.py`
+transcribes each phrase locally with faster-whisper (default model `base`, int8 on CPU).
+
+![voice](docs/screenshots/audio_pipeline.png)
+*Simulated microphone and a stand-in transcriber: shows the plumbing and timing, not Whisper accuracy.*
+
 ## Build order
 
 1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`
