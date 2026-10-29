@@ -111,3 +111,24 @@ def test_real_models_find_face_and_embed():
     cos = float(f.embedding @ again / (np.linalg.norm(f.embedding) * np.linalg.norm(again)))
     assert cos > 0.999
     assert an.analyze(np.zeros((480, 640, 3), np.uint8)) == []  # no face, no crash
+
+
+@needs_models
+def test_enroll_then_recognize_modified_photo(tmp_path):
+    """End to end with real models: same person, different pixels, still matches."""
+    cv2 = pytest.importorskip("cv2")
+    from storage.face_store import FaceStore
+    from vision.detector import FaceAnalyzer
+    from vision.spatial_engine import VectorIdentityMatcher
+
+    img = cv2.imread(str(DATA / "astronaut.jpg"))
+    an = FaceAnalyzer(MODELS)
+    store = FaceStore(tmp_path)
+    store.add("astro", an.analyze(img)[0].embedding)
+
+    m = VectorIdentityMatcher()
+    m.register_identities(store.load_all())
+    variant = cv2.convertScaleAbs(cv2.resize(img, (400, 400)), alpha=0.8, beta=25)  # smaller, darker
+    emb = an.analyze(variant)[0].embedding
+    (label, score), = m.search_batch(emb[None])
+    assert label == "astro" and score > 0.8
