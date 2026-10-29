@@ -48,6 +48,14 @@ Run it: `python -m examples.event_bus_demo`. Tests: `pytest`.
 
 ![tests](docs/screenshots/event_bus_tests.png)
 
+## Camera capture
+
+`pip install opencv-python`, then `python -m examples.webcam_demo` (press `q` to quit).
+No camera? `python -m examples.webcam_demo --synthetic`.
+
+![capture](docs/screenshots/capture_synthetic.png)
+*Synthetic test pattern, not a real webcam.*
+
 ## Build order
 
 1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`
