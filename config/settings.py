@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
     whisper_language: Optional[str] = None  # None = auto-detect
     mic_device: Optional[int] = None  # None = system default
+    faces_dir: str = "storage/reference_faces"
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
