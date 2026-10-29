@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
@@ -108,6 +108,7 @@ def test_full_gui_flow(qapp, tmp_path, monkeypatch):
         assert wait_for(qapp, lambda: "Hello Alice." in chat())
         assert win.people.item(0).text().startswith("Alice")
         assert win.lbl_voice.text() == "Mic off" and not win.chk_listen.isEnabled()
+        assert abs(win._brightness - 90) < 1  # measured from the frames (the fake camera is mid-grey)
 
         # typed command goes through the same path as speech
         win.input.setText("what time is it")
@@ -141,3 +142,31 @@ def test_full_gui_flow(qapp, tmp_path, monkeypatch):
         win.close()
         assert time.monotonic() - t0 < 8  # engine shuts down promptly
         assert ctl._thread._thread.is_alive() is False
+
+
+def test_window_fits_a_small_laptop_screen(qapp):
+    win = MainWindow(EngineController())  # not started: layout only
+    avail = QRect(0, 0, 1366, 728)  # 1366x768 minus the taskbar
+    win.fit_to_screen(avail)
+    win.show()
+    qapp.processEvents()
+    assert win.width() <= avail.width() and win.height() <= avail.height()
+    assert win.minimumSizeHint().height() <= 640  # the layout itself is compact enough to fit
+    for w in (win.input, win.btn_enroll):  # the bottom controls are inside the window, not clipped
+        assert w.mapTo(win, QPoint(0, w.height())).y() <= win.height()
+    win.close()
+
+
+def test_dim_light_hint(qapp):
+    win = MainWindow(EngineController())
+    win.show()
+    win._has_camera = True
+    for brightness, shown in ((20.0, True), (140.0, False)):
+        win._brightness = brightness
+        win._poll_state()
+        assert win.lbl_hint.isVisible() is shown
+    win._has_camera = False
+    win._brightness = 20.0
+    win._poll_state()
+    assert not win.lbl_hint.isVisible()  # no camera, no hint
+    win.close()

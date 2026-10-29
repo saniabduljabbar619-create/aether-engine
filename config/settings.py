@@ -2,7 +2,7 @@
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,12 +15,22 @@ class Settings(BaseSettings):
     similarity_threshold: float = Field(0.363, ge=0.0, le=1.0)
     whisper_model: str = "base"
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
-    whisper_language: Optional[str] = None  # None = auto-detect
+    # Fixing the language skips Whisper's detection pass (faster) and stops short clips being
+    # "detected" as Greek or Polish. Use AETHER_WHISPER_LANGUAGE=auto to detect automatically.
+    whisper_language: Optional[str] = "en"
+    whisper_prompt: str = "Hey Aether, who is at the camera? Aether, what time is it?"  # biases decoding to the wake word
+    whisper_threads: int = Field(0, ge=0)  # 0 = half of the CPU threads, so the camera stays smooth
+    detect_max_fps: float = Field(10.0, gt=0)  # face detection rate cap; frees CPU for speech
     mic_device: Optional[int] = None  # None = system default
     faces_dir: str = "storage/reference_faces"
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
+
+    @field_validator("whisper_language", mode="before")
+    @classmethod
+    def _auto_means_none(cls, v):
+        return None if v is None or str(v).strip().lower() in ("", "auto", "none") else str(v).strip().lower()
 
 
 @lru_cache

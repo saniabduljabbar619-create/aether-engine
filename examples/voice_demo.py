@@ -20,7 +20,8 @@ from core.event_bus import Event, EventBus, Topic
 def load_engine() -> FasterWhisperEngine:
     cfg = get_settings()
     print(f"loading Whisper '{cfg.whisper_model}' (first run downloads it)...")
-    return FasterWhisperEngine(cfg.whisper_model, cfg.whisper_device, language=cfg.whisper_language)
+    return FasterWhisperEngine(cfg.whisper_model, cfg.whisper_device, language=cfg.whisper_language,
+                               prompt=cfg.whisper_prompt, threads=cfg.whisper_threads)
 
 
 def read_wav(path: str) -> np.ndarray:

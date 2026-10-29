@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Optional, Protocol, Tuple
@@ -36,22 +38,51 @@ class Transcriber(Protocol):
         """float32 mono 16 kHz -> (text, language code)."""
 
 
+# What Whisper tends to "hear" in near-silence or noise. Only dropped when it is the WHOLE text, so a
+# real command such as "Aether, thank you" is never touched.
+_PHANTOMS = {"thank you", "thanks", "thanks for watching", "thank you for watching", "you", "bye",
+             "i'm sorry", "i am sorry", "sorry", "okay", "ok", "so", "uh", "um", "hmm", "mm", "oh"}
+
+
+def is_phantom(text: str) -> bool:
+    return re.sub(r"[^a-z' ]+", "", text.lower()).strip() in _PHANTOMS
+
+
+def default_threads() -> int:
+    """Half of the CPU threads (at least 1): speech never starves the camera and the UI."""
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
 class FasterWhisperEngine:
     def __init__(self, model: str = "base", device: str = "auto", compute_type: str = "int8",
-                 language: Optional[str] = None) -> None:
-        from faster_whisper import WhisperModel  # lazy: heavy import
+                 language: Optional[str] = "en", prompt: Optional[str] = None, threads: int = 0,
+                 _model=None) -> None:
+        if _model is None:
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # harmless on Windows, just noisy
+            from faster_whisper import WhisperModel  # lazy: heavy import
 
-        self._model = WhisperModel(model, device=device, compute_type=compute_type)
+            _model = WhisperModel(model, device=device, compute_type=compute_type,
+                                  cpu_threads=threads or default_threads())
+        self._model = _model
         self._language = language
+        self._prompt = prompt or None
 
     def transcribe(self, audio: np.ndarray) -> Tuple[str, str]:
         segments, info = self._model.transcribe(
-            audio, language=self._language, beam_size=1, temperature=0.0,
+            audio, language=self._language, initial_prompt=self._prompt, beam_size=1, temperature=0.0,
+            without_timestamps=True,
             vad_filter=False,  # already segmented by our own VAD
             condition_on_previous_text=False)  # stops one hallucination feeding the next
-        # Whisper invents text ("Thank you.") for near-silence; drop segments it itself doubts.
-        kept = [s.text.strip() for s in segments if not (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0)]
-        return " ".join(t for t in kept if t).strip(), info.language
+        kept = [s.text.strip() for s in segments if _trustworthy(s)]
+        text = " ".join(t for t in kept if t).strip()
+        return ("" if is_phantom(text) else text), info.language
+
+
+def _trustworthy(seg) -> bool:
+    """Drop segments Whisper itself doubts: probably no speech, or looping/garbled output."""
+    if seg.no_speech_prob > 0.6 and seg.avg_logprob < -1.0:
+        return False
+    return seg.compression_ratio <= 2.4
 
 
 class SttService:

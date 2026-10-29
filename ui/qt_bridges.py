@@ -38,6 +38,7 @@ TYPED_PREFIX = "Aether, "
 class FrameInfo:
     tracks: list
     inference_ms: float
+    brightness: float = 255.0  # mean pixel value 0-255, to warn about dim light
 
 
 class EngineThread:
@@ -58,6 +59,8 @@ class EngineThread:
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
     def stop(self) -> None:
+        if not self._thread.is_alive():  # never started, or already stopped
+            return
         self.loop.call_soon_threadsafe(self.loop.stop)
         self._thread.join(timeout=5)
 
@@ -116,7 +119,7 @@ class QtBridge(QObject):
         h, w = img.shape[:2]
         rgb = np.ascontiguousarray(img[:, :, ::-1])  # BGR -> RGB
         qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()  # own the pixels
-        self._push_frame(qimg, FrameInfo(u.tracks, u.inference_ms))
+        self._push_frame(qimg, FrameInfo(u.tracks, u.inference_ms, float(img[::16, ::16].mean())))
 
     async def _on_heard(self, engine: Engine, e: Event) -> None:
         t: Transcript = e.payload

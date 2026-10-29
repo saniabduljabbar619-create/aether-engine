@@ -137,3 +137,71 @@ async def test_subscribe_after_start_and_unsubscribe(bus):
     bus.publish(Topic.COMMAND_ISSUED, "b")
     await asyncio.sleep(0.01)
     assert got == ["a"]
+
+
+async def test_late_publish_during_stop_cannot_evict_the_shutdown_marker():
+    """Regression: a full max_queue=1 queue holding the stop marker used to lose it to drop_oldest."""
+    bus = EventBus()
+    await bus.start()
+    seen = []
+
+    async def slow(e):
+        await asyncio.sleep(0.05)
+        seen.append(e.payload)
+
+    bus.subscribe(Topic.FRAME_CAPTURED, slow, max_queue=1)
+    bus.publish(Topic.FRAME_CAPTURED, 1)  # being handled
+    await asyncio.sleep(0.01)
+    bus.publish(Topic.FRAME_CAPTURED, 2)  # waiting: queue is full
+    stopping = asyncio.create_task(bus.stop())
+    await asyncio.sleep(0.07)  # worker has taken 2, so the stop marker now sits in the 1-slot queue
+    bus.publish(Topic.FRAME_CAPTURED, 3)  # a late publish, e.g. from another handler
+    await asyncio.wait_for(stopping, 2)  # must not hang
+    assert seen == [1, 2]  # queued events were handled; the late one was refused
+
+
+async def test_publish_after_stop_is_ignored():
+    bus = EventBus()
+    await bus.start()
+    got = []
+
+    async def h(e):
+        got.append(e)
+
+    sub = bus.subscribe(Topic.SYSTEM_ERROR, h)
+    await bus.stop()
+    bus.publish(Topic.SYSTEM_ERROR, "late")
+    assert sub.queue.qsize() == 0 and got == []
+
+
+async def test_stop_gives_up_on_a_stuck_handler():
+    bus = EventBus()
+    await bus.start()
+    never = asyncio.Event()
+
+    async def stuck(e):
+        await never.wait()
+
+    bus.subscribe(Topic.SYSTEM_ERROR, stuck)
+    bus.publish(Topic.SYSTEM_ERROR, 1)
+    await asyncio.sleep(0.02)
+    t0 = asyncio.get_running_loop().time()
+    await asyncio.wait_for(bus.stop(timeout=0.3), 3)
+    assert asyncio.get_running_loop().time() - t0 < 1.5
+
+
+async def test_bus_can_be_restarted_after_stop():
+    bus = EventBus()
+    await bus.start()
+    await bus.stop()
+    got = []
+
+    async def h(e):
+        got.append(e.payload)
+
+    bus.subscribe(Topic.SYSTEM_ERROR, h)
+    await bus.start()
+    bus.publish(Topic.SYSTEM_ERROR, "again")
+    await asyncio.sleep(0.02)
+    await bus.stop()
+    assert got == ["again"]
