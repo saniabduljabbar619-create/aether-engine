@@ -18,6 +18,8 @@ from core.event_bus import Event, EventBus, Subscription, Topic
 
 log = logging.getLogger("aether.stt")
 
+TYPED = "typed"  # Transcript.language for commands typed in the UI (no microphone involved)
+
 
 @dataclass(frozen=True)
 class Transcript:

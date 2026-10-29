@@ -102,11 +102,28 @@ transcribes each phrase locally with faster-whisper (default model `base`, int8 
 ![voice](docs/screenshots/audio_pipeline.png)
 *Simulated microphone and a stand-in transcriber: shows the plumbing and timing, not Whisper accuracy.*
 
+## Desktop window
+
+`python main.py --gui` (needs `pip install PySide6`). Live camera with boxes and names, system status
+and mic level, enrolled people (enroll with a button, forget with a button), a conversation log, an
+activity tab fed by the audit log, and a box for typing commands when you would rather not talk.
+
+![gui](docs/screenshots/gui_conversation.png)
+![enrolling](docs/screenshots/gui_enrolling.png)
+![activity](docs/screenshots/gui_activity.png)
+*Simulated camera (public-domain photo) with the real face models; real Qt window rendered offscreen.*
+
+Design notes: the asyncio engine runs on its own thread and the window only talks to an
+`EngineController` (`ui/qt_bridges.py`). Video frames pass through a latest-frame mailbox, so a slow UI
+skips frames instead of lagging. Enrolling from the window is allowed without a recognized person in
+view, because whoever sits at the keyboard is the administrator; the voice rules still apply to voice.
+
 ## Run everything
 
 ```bash
 pip install -e ".[vision,audio]" pyttsx3 pytest pytest-asyncio
-python main.py                 # camera + microphone + spoken replies
+python main.py --gui           # desktop window (recommended)
+python main.py                 # classic OpenCV window
 python main.py --no-voice      # camera only        (also: --no-camera, --no-window, --no-tts)
 ```
 
@@ -143,4 +160,4 @@ orchestrator.register_handler("lock_door", [r"\block\b.*\bdoor\b"], lock)
 ## Build order (done)
 
 event bus, settings, spatial engine, camera capture, face detector, recognition, audio, orchestrator.
-Next: PySide6 desktop UI (`ui/main_window.py`, `ui/qt_bridges.py`).
+PySide6 desktop UI.

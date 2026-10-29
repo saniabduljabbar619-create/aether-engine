@@ -18,6 +18,10 @@ class FaceStore:
     def __init__(self, root: "str | Path" = "storage/reference_faces") -> None:
         self.root = Path(root)
 
+    @staticmethod
+    def valid_name(name: str) -> bool:
+        return bool(_NAME.match(name))
+
     def add(self, name: str, embedding: np.ndarray) -> Path:
         if not _NAME.match(name):
             raise ValueError("name must be letters, digits, '-' or '_' (max 64 chars)")

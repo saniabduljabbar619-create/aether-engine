@@ -34,6 +34,7 @@ class Topic(str, Enum):
     SPEECH_STARTED = "audio.speech_started"
     SPEECH_CAPTURED = "audio.speech_captured"
     SPEECH_TRANSCRIBED = "audio.speech_transcribed"
+    PEOPLE_CHANGED = "system.people_changed"
     COMMAND_ISSUED = "system.command_issued"
     SYSTEM_ERROR = "system.error"
 
