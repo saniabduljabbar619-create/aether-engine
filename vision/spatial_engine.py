@@ -32,9 +32,8 @@ class VectorIdentityMatcher:
             for e in embeds:
                 vectors.append(e / np.linalg.norm(e))
                 labels.append(name)
-        if vectors:
-            self.known_embeddings = np.asarray(vectors, dtype=np.float32)
-            self.known_labels = labels
+        self.known_embeddings = np.asarray(vectors, dtype=np.float32) if vectors else None
+        self.known_labels = labels
 
     def search_batch(self, queries: np.ndarray) -> List[Tuple[Optional[str], float]]:
         """queries: (M, D). Returns [(label | 'Unknown', score)] per query."""

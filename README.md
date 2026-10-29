@@ -102,7 +102,45 @@ transcribes each phrase locally with faster-whisper (default model `base`, int8 
 ![voice](docs/screenshots/audio_pipeline.png)
 *Simulated microphone and a stand-in transcriber: shows the plumbing and timing, not Whisper accuracy.*
 
-## Build order
+## Run everything
 
-1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`
-4. `vision/capture.py` + `detector.py` 5. `audio/*` 6. `storage/local_db.py` 7. `ui/*` 8. `main.py`
+```bash
+pip install -e ".[vision,audio]" pyttsx3 pytest pytest-asyncio
+python main.py                 # camera + microphone + spoken replies
+python main.py --no-voice      # camera only        (also: --no-camera, --no-window, --no-tts)
+```
+
+Say the wake word first, so ordinary conversation is ignored: **"Aether, ..."**
+
+| Say | What happens |
+|-----|--------------|
+| who is at the camera / who am I | describes who is in view |
+| enroll me as `<name>` | captures 8 samples of the one face in view, then remembers it |
+| forget me | deletes the recognized person's stored face data |
+| who do you know / status / recent activity | lists enrolled people / system status / last audit events |
+| what time is it / what's the date | |
+| help / goodbye | lists commands / shuts down |
+
+![conversation](docs/screenshots/orchestrator_conversation.png)
+![frame](docs/screenshots/orchestrator_e2e.png)
+*Simulated camera and microphone with the real face models and a scripted stand-in for Whisper.*
+
+**Safety rules** (this system handles biometric data): audio captured while the assistant is speaking
+is ignored, so it never obeys itself; enrolling needs an already-recognized person in view (unless
+nobody is enrolled yet); samples can only be added to a name by that person; "forget me" only deletes
+the recognized person's own data. Events are logged to a local SQLite file (`storage/aether.db`, git-ignored).
+
+Add your own commands:
+
+```python
+async def lock(cmd):
+    my_door.lock()
+    return "Front door locked."
+
+orchestrator.register_handler("lock_door", [r"\block\b.*\bdoor\b"], lock)
+```
+
+## Build order (done)
+
+event bus, settings, spatial engine, camera capture, face detector, recognition, audio, orchestrator.
+Next: PySide6 desktop UI (`ui/main_window.py`, `ui/qt_bridges.py`).
