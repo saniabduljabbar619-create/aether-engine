@@ -70,6 +70,31 @@ async def test_skips_stale_frames_while_busy(bus):
     assert got[0] == 1 and got[-1] == 10 and len(got) < 6  # newest processed, middle skipped
 
 
+async def test_detection_rate_is_capped(bus):
+    an = FakeAnalyzer()
+    DetectorService(bus, an, max_fps=20).start()  # at most one analysis per 50 ms
+    for i in range(40):  # the camera delivers 100 frames/s for 0.4 s
+        bus.publish(Topic.FRAME_CAPTURED, _frame(i))
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.1)
+    assert 3 <= len(an.seen) <= 12  # about 8, not 40
+
+
+async def test_after_resting_the_newest_frame_is_analyzed(bus):
+    got = []
+
+    async def h(e):
+        got.append(e.payload.frame.frame_id)
+
+    bus.subscribe(Topic.FACE_DETECTED, h)
+    DetectorService(bus, FakeAnalyzer(), max_fps=10).start()
+    for i in range(1, 11):
+        bus.publish(Topic.FRAME_CAPTURED, _frame(i))
+        await asyncio.sleep(0.02)
+    await asyncio.sleep(0.3)
+    assert got[0] == 1 and got[-1] == 10  # never a stale middle frame last
+
+
 async def test_analyzer_failure_does_not_kill_service(bus):
     got = []
 

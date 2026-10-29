@@ -105,7 +105,8 @@ class Engine:
             self._on_status("Loading speech model (the first run downloads it)...")
             jobs["transcriber"] = asyncio.to_thread(
                 FasterWhisperEngine, self.cfg.whisper_model, self.cfg.whisper_device,
-                language=self.cfg.whisper_language)
+                language=self.cfg.whisper_language, prompt=self.cfg.whisper_prompt,
+                threads=self.cfg.whisper_threads)
         if jobs:
             for name, model in zip(jobs, await asyncio.gather(*jobs.values())):
                 setattr(self, f"_{name}", model)
@@ -115,7 +116,7 @@ class Engine:
         from vision.detector import DetectorService
         from vision.recognition import RecognitionService
 
-        DetectorService(self.bus, self._analyzer).start()
+        DetectorService(self.bus, self._analyzer, max_fps=self.cfg.detect_max_fps).start()
         RecognitionService(self.bus, self.matcher).start()
         cap = FrameCapture(self.bus, camera_index=self._camera_index, source_factory=self._source_factory)
         try:

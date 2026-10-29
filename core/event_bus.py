@@ -76,27 +76,43 @@ class EventBus:
         self._subs: Dict[str, List[Subscription]] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._running = False
+        self._closing = False
 
     # ---- lifecycle -------------------------------------------------------
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._running = True
+        self._closing = False
         for sub in self.subscriptions():
             self._spawn(sub)
 
-    async def stop(self, drain: bool = True) -> None:
-        """Stop workers. With ``drain`` queued events are handled first."""
+    async def stop(self, drain: bool = True, timeout: float = 5.0) -> None:
+        """Stop the workers.
+
+        With ``drain`` the events already queued are handled first. Events published after stop()
+        begins are ignored: they could otherwise push the stop marker out of a full queue and hang
+        the shutdown. A handler that has not finished after ``timeout`` seconds is cancelled.
+        """
         self._running = False
-        subs = self.subscriptions()
+        self._closing = True
+        subs = [s for s in self.subscriptions() if s.task]
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
         for sub in subs:
-            if not sub.task:
-                continue
-            if drain:
-                await sub.queue.put(None)  # sentinel; waits for room, handled after pending events
-            else:
+            if not drain:
                 sub.task.cancel()
-        tasks = [s.task for s in subs if s.task]
-        await asyncio.gather(*tasks, return_exceptions=True)
+                continue
+            try:  # the marker is handled after pending events; waits if the queue is full
+                await asyncio.wait_for(sub.queue.put(None), max(0.0, deadline - loop.time()))
+            except asyncio.TimeoutError:
+                sub.task.cancel()
+        tasks = [s.task for s in subs]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=max(0.0, deadline - loop.time()))
+            for task in pending:
+                log.warning("handler %s did not finish in time; cancelling", task.get_name())
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         for sub in subs:
             sub.task = None
 
@@ -129,6 +145,8 @@ class EventBus:
         """Non-blocking publish; call from the event-loop thread."""
         key = topic.value if isinstance(topic, Topic) else topic
         event = Event(key, payload)
+        if self._closing:
+            return event
         for sub in (*self._subs.get(key, ()), *self._subs.get(WILDCARD, ())):
             self._enqueue(sub, event)
         return event

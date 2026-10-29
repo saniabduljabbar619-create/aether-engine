@@ -97,6 +97,10 @@ class FaceAnalyzer:
                  nms_threshold: float = 0.3, top_k: int = 10) -> None:
         import cv2  # lazy so the rest of the package imports without OpenCV
 
+        try:  # OpenCV 5 prints a harmless "Targets are not supported" warning for every model load
+            cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+        except Exception:
+            pass
         self._cv2 = cv2
         yunet, sface = ensure_models(model_dir)
         self._detector = cv2.FaceDetectorYN.create(
@@ -125,9 +129,10 @@ class FaceAnalyzer:
 class DetectorService:
     """Bus adapter: analyzes the newest captured frame and publishes FACE_DETECTED."""
 
-    def __init__(self, bus: EventBus, analyzer: Analyzer) -> None:
+    def __init__(self, bus: EventBus, analyzer: Analyzer, max_fps: float = 10.0) -> None:
         self._bus = bus
         self._analyzer = analyzer
+        self._min_interval = 1.0 / max_fps  # recognition needs ~10 checks/s, not a whole CPU core
         self._sub: Optional[Subscription] = None
 
     def start(self) -> None:
@@ -143,5 +148,8 @@ class DetectorService:
         frame: Frame = event.payload
         t0 = time.perf_counter()
         faces = await asyncio.to_thread(self._analyzer.analyze, frame.image)
-        ms = (time.perf_counter() - t0) * 1000
-        self._bus.publish(Topic.FACE_DETECTED, FaceEvent(frame, faces, ms))
+        elapsed = time.perf_counter() - t0
+        self._bus.publish(Topic.FACE_DETECTED, FaceEvent(frame, faces, elapsed * 1000))
+        # Rest AFTER working, so the next frame taken from the queue is the newest, not a stale one.
+        if elapsed < self._min_interval:
+            await asyncio.sleep(self._min_interval - elapsed)

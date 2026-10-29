@@ -118,6 +118,24 @@ Design notes: the asyncio engine runs on its own thread and the window only talk
 skips frames instead of lagging. Enrolling from the window is allowed without a recognized person in
 view, because whoever sits at the keyboard is the administrator; the voice rules still apply to voice.
 
+## Tuning for your machine
+
+Settings come from environment variables or a `.env` file in the project folder (see `.env.example`).
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `AETHER_WHISPER_LANGUAGE` | `en` | Fixed language: faster, and no more "Greek" guesses on short clips. `auto` detects it |
+| `AETHER_WHISPER_MODEL` | `base` | `tiny` is fastest, `small` is more accurate but needs a stronger CPU |
+| `AETHER_WHISPER_THREADS` | `0` | CPU threads for speech; `0` = half of them, so the camera stays smooth |
+| `AETHER_DETECT_MAX_FPS` | `10` | Face-detection rate cap. Measured on 4 cores: unlimited used 1.85 cores, 10/s used 0.61, 5/s used 0.34 |
+| `AETHER_SIMILARITY_THRESHOLD` | `0.363` | Higher = stricter face matching |
+
+Light matters: in a dim room webcams lower their own frame rate and faces match less reliably.
+The window shows a hint when the picture is dark.
+
+![small screen](docs/screenshots/gui_small_screen.png)
+*The window sizes itself to the screen (shown at 1366x768 minus the taskbar), with the dim-light hint.*
+
 ## Run everything
 
 ```bash

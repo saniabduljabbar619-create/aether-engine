@@ -5,9 +5,9 @@ from datetime import datetime
 from html import escape
 from typing import Optional
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QProgressBar, QPushButton, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
@@ -53,7 +53,7 @@ class VideoWidget(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(480, 360)
+        self.setMinimumSize(320, 240)
         self._image: Optional[QImage] = None
         self._tracks: list = []
         self._message = "Starting..."
@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ctl = controller
         self.setWindowTitle("Aether")
+        self.setMinimumSize(860, 520)
         self.resize(1200, 740)
         self.setStyleSheet(STYLE)
         self._has_camera = self._has_mic = False
@@ -139,6 +140,9 @@ class MainWindow(QMainWindow):
         splitter.setSizes([740, 440])
         self.setCentralWidget(splitter)
         self.statusBar().showMessage("Starting...")
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            self.fit_to_screen(screen.availableGeometry())
 
         # Connect to bound methods of this widget (not lambdas): Qt then always delivers the call on the
         # GUI thread, even though the signals are emitted from the engine thread.
@@ -158,6 +162,12 @@ class MainWindow(QMainWindow):
         self._poll.timeout.connect(self._poll_state)
         self._poll.start(100)
         self._last_ms = 0.0
+        self._brightness = 255.0
+
+    def fit_to_screen(self, avail: QRect) -> None:
+        """Never taller or wider than the usable screen (a 1366x768 laptop minus the taskbar)."""
+        self.resize(min(1200, int(avail.width() * 0.92)), min(740, int(avail.height() * 0.92)))
+        self.move(avail.center() - self.rect().center())
 
     # ---- layout ----------------------------------------------------------
     def _build_side_panel(self) -> QWidget:
@@ -195,13 +205,18 @@ class MainWindow(QMainWindow):
         toggles.addWidget(self.chk_mute)
         toggles.addStretch()
         grid.addLayout(toggles)
+        self.lbl_hint = QLabel("Dim light: the camera slows down and recognition is less accurate.")
+        self.lbl_hint.setStyleSheet(f"color: {WARN}; background: transparent;")
+        self.lbl_hint.setWordWrap(True)
+        self.lbl_hint.hide()
+        grid.addWidget(self.lbl_hint)
         return box
 
     def _build_people_box(self) -> QGroupBox:
         box = QGroupBox("People")
         lay = QVBoxLayout(box)
         self.people = QListWidget()
-        self.people.setMaximumHeight(110)
+        self.people.setMaximumHeight(90)
         lay.addWidget(self.people)
         self.enroll_bar = QProgressBar()
         self.enroll_bar.setTextVisible(False)
@@ -223,6 +238,7 @@ class MainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
+        tabs.setMinimumHeight(110)
         self.chat = QTextEdit()
         self.chat.setReadOnly(True)
         tabs.addTab(self.chat, "Conversation")
@@ -270,6 +286,7 @@ class MainWindow(QMainWindow):
             return
         image, info = item
         self._last_ms = info.inference_ms
+        self._brightness = info.brightness
         self.video.set_frame(image, info.tracks)
 
     def _on_reply(self, text: str) -> None:
@@ -296,6 +313,7 @@ class MainWindow(QMainWindow):
             return
         self.lbl_fps.setText(f"{self.ctl.fps:.0f} FPS" if self._has_camera else "off")
         self.lbl_ms.setText(f"{self._last_ms:.0f} ms" if self._has_camera else "-")
+        self.lbl_hint.setVisible(self._has_camera and self._brightness < 60)
         self.mic_bar.setValue(int(max(0.0, min(100.0, (self.ctl.mic_level_db + 60) * 100 / 60))))
         prog = self.ctl.enrollment_progress
         busy = prog is not None
