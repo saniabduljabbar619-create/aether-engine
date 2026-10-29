@@ -12,6 +12,7 @@ from typing import Any, Callable, List, Optional
 
 from audio.tts import NullSpeaker, SwitchableSpeaker
 from config.settings import Settings, get_settings
+from core.commands import CommandRouter
 from core.event_bus import EventBus
 from core.orchestrator import Orchestrator
 from storage.face_store import FaceStore
@@ -64,6 +65,8 @@ class Engine:
                 self.warnings.append("Text-to-speech is unavailable; replies are text only.")
         self.speaker = SwitchableSpeaker(inner)
         self.orch = Orchestrator(self.bus, self.matcher, self.store, self.audit, self.speaker,
+                                 router=CommandRouter(wake_words=self.cfg.wake_word_list),
+                                 follow_up_seconds=self.cfg.follow_up_seconds,
                                  status_fn=self._status_text, on_reply=self._on_reply)
         self.orch.start()
 
@@ -114,7 +117,7 @@ class Engine:
             self._on_status("Loading speech model (the first run downloads it)...")
             jobs["transcriber"] = asyncio.to_thread(
                 FasterWhisperEngine, self.cfg.whisper_model, self.cfg.whisper_device,
-                language=self.cfg.whisper_language, prompt=self.cfg.whisper_prompt,
+                language=self.cfg.whisper_language, prompt=self.cfg.effective_whisper_prompt,
                 threads=self.cfg.whisper_threads)
         if jobs:
             for name, model in zip(jobs, await asyncio.gather(*jobs.values())):

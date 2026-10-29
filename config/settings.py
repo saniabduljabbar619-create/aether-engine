@@ -1,6 +1,6 @@
 """Centralized configuration. Values come from env vars (prefix AETHER_) or a .env file."""
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     # Fixing the language skips Whisper's detection pass (faster) and stops short clips being
     # "detected" as Greek or Polish. Use AETHER_WHISPER_LANGUAGE=auto to detect automatically.
     whisper_language: Optional[str] = "en"
-    whisper_prompt: str = "Hey Aether, who is at the camera? Aether, what time is it?"  # biases decoding to the wake word
+    whisper_prompt: str = ""  # empty = a hint built from the wake word, to bias decoding toward it
+    # Say this first. Several words can be given, comma-separated. A common word ("computer") is far
+    # easier for a speech model to hear than a rare one ("Aether").
+    wake_words: str = "aether"
+    follow_up_seconds: float = Field(10.0, ge=0)  # after Aether speaks, safe commands need no wake word for this long
     whisper_threads: int = Field(0, ge=0)  # 0 = half of the CPU threads, so the camera stays smooth
     detect_max_fps: float = Field(10.0, gt=0)  # face detection rate cap; frees CPU for speech
     mic_device: Optional[int] = None  # None = system default
@@ -26,6 +30,17 @@ class Settings(BaseSettings):
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
+
+    @property
+    def wake_word_list(self) -> List[str]:
+        return [w.strip().lower() for w in self.wake_words.split(",") if w.strip()] or ["aether"]
+
+    @property
+    def effective_whisper_prompt(self) -> str:
+        if self.whisper_prompt.strip():
+            return self.whisper_prompt.strip()
+        w = self.wake_word_list[0].title()
+        return f"Hey {w}, who is at the camera? {w}, what time is it?"
 
     @field_validator("whisper_language", mode="before")
     @classmethod
