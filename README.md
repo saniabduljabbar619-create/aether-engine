@@ -56,6 +56,17 @@ No camera? `python -m examples.webcam_demo --synthetic`.
 ![capture](docs/screenshots/capture_synthetic.png)
 *Synthetic test pattern, not a real webcam.*
 
+## Face detection
+
+`python -m examples.detect_demo` (first run downloads two models, ~39 MB, into `models/`).
+Only `opencv-python` is needed: YuNet detects faces, SFace produces 128-D embeddings.
+Analyze a single image: `python -m examples.detect_demo --image photo.jpg --save out.png`.
+
+![detector](docs/screenshots/detector_astronaut.png)
+*NASA public-domain photo (scikit-image sample data).*
+
+Note: SFace's recommended cosine threshold is **0.363**, which is now the default.
+
 ## Build order
 
 1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`

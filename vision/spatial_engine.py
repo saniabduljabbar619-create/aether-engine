@@ -16,9 +16,12 @@ class TrackedIdentity:
 
 
 class VectorIdentityMatcher:
-    """Cosine-similarity search over L2-normalized face embeddings."""
+    """Cosine-similarity search over L2-normalized embeddings.
 
-    def __init__(self, similarity_threshold: float = 0.68):
+    The 0.363 default is the cosine threshold recommended for SFace embeddings.
+    """
+
+    def __init__(self, similarity_threshold: float = 0.363):
         self.similarity_threshold = similarity_threshold
         self.known_embeddings: Optional[np.ndarray] = None  # (N, D)
         self.known_labels: List[str] = []

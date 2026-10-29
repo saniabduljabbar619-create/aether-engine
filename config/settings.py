@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     camera_index: int = 0
     frame_width: int = 640
     frame_height: int = 480
-    similarity_threshold: float = Field(0.68, ge=0.0, le=1.0)
+    similarity_threshold: float = Field(0.363, ge=0.0, le=1.0)
     whisper_model: str = "small"
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
     db_path: str = "storage/aether.db"
