@@ -25,6 +25,29 @@ cp .env.example .env
 pytest
 ```
 
+## Install
+
+Python 3.10+. Use a virtual environment.
+
+| Stage | Command | Packages |
+|-------|---------|----------|
+| Now (bus, config, spatial engine) | `pip install numpy pydantic pydantic-settings` | math, settings |
+| Dev / tests | `pip install pytest pytest-asyncio ruff` | test runner, async tests, linter |
+| Vision (next) | `pip install opencv-python mediapipe deepface` | camera, face detection, embeddings |
+| Audio | `pip install faster-whisper sounddevice webrtcvad-wheels` | local STT, mic capture, VAD |
+| UI | `pip install PySide6` | desktop GUI |
+
+Or install by group: `pip install -e ".[dev]"`, `".[vision]"`, `".[audio]"`, `".[ui]"`.
+(`sounddevice` also needs the system PortAudio library, e.g. `apt install libportaudio2`.)
+
+## Event bus
+
+![demo](docs/screenshots/event_bus_demo.png)
+
+Run it: `python -m examples.event_bus_demo`. Tests: `pytest`.
+
+![tests](docs/screenshots/event_bus_tests.png)
+
 ## Build order
 
 1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`
