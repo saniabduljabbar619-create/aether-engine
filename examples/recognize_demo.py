@@ -15,28 +15,7 @@ from vision.capture import CameraError, FrameCapture
 from vision.detector import DetectorService, FaceAnalyzer
 from vision.recognition import FacesUpdate, Recognition, RecognitionService
 from vision.spatial_engine import VectorIdentityMatcher
-from vision.tracker import UNKNOWN
-
-GREEN, YELLOW, RED = (0, 220, 0), (0, 220, 255), (0, 0, 255)
-
-
-def draw(img, tracks, status, banner=None):
-    for t in tracks:
-        top, right, bottom, left = t.bbox
-        if t.identity is None:
-            color, label = YELLOW, "verifying..."
-        elif t.identity == UNKNOWN:
-            color, label = RED, "Unknown"
-        else:
-            color, label = GREEN, f"{t.identity} {t.score:.2f}"
-        cv2.rectangle(img, (left, top), (right, bottom), color, 2)
-        cv2.rectangle(img, (left, bottom), (right, bottom + 24), color, -1)
-        cv2.putText(img, label, (left + 4, bottom + 17), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
-    cv2.putText(img, status, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
-    if banner:
-        cv2.putText(img, banner, (12, img.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 1.0, GREEN, 3)
-    return img
-
+from ui.overlay import draw
 
 async def main(args) -> None:
     cfg = get_settings()
