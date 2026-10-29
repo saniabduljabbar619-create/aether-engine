@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+*.npy
+models/
+.cache/
+dist/
+build/
+*.egg-info/
+!storage/reference_faces/.gitkeep
