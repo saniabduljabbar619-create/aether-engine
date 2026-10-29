@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional
 
-from audio.stt_engine import Transcript
+from audio.stt_engine import TYPED, Transcript
 from audio.tts import NullSpeaker, Speaker
 from core.commands import Command, CommandRouter
 from core.event_bus import Event, EventBus, Topic
@@ -65,6 +65,7 @@ class Orchestrator:
         self.status_fn = status_fn
         self.on_reply = on_reply or (lambda text: print(f"Aether: {text}"))
         self.shutdown = asyncio.Event()
+        self.listening = True  # the UI can pause voice commands
         self._view: Optional[FacesUpdate] = None
         self._view_at = 0.0
         self._enroll: Optional[_Enrollment] = None
@@ -110,7 +111,7 @@ class Orchestrator:
 
     async def _on_transcript(self, e: Event) -> None:
         t: Transcript = e.payload
-        if self.speaker.was_speaking_at(t.started_at):
+        if t.language != TYPED and (not self.listening or self.speaker.was_speaking_at(t.started_at)):
             log.info("ignored speech captured while speaking: %r", t.text)
             return
         cmd = self.router.parse(t.text)
@@ -207,16 +208,42 @@ class Orchestrator:
         name = c.args.get("name")
         if not name:
             return "Say: Aether, enroll me as, followed by your name."
-        if self._enroll is not None:
-            return "I'm already enrolling someone. One moment."
         people, known = self.store.load_all(), self._visible_known()
-        if people and not known:
-            return "For safety, only someone I already recognize can enroll a face. Please let me recognize you first."
-        if name in people and name not in known:
-            return f"I already know a {display(name)}. Only they can add more samples of their face."
+        if self._enroll is None:  # (the "already enrolling" message comes from begin_enrollment)
+            if people and not known:
+                return "For safety, only someone I already recognize can enroll a face. Please let me recognize you first."
+            if name in people and name not in known:
+                return f"I already know a {display(name)}. Only they can add more samples of their face."
+        try:
+            return self.begin_enrollment(name)
+        except ValueError as exc:
+            return str(exc)
+
+    def begin_enrollment(self, name: str) -> str:
+        """Start capturing samples for ``name``. No permission check: voice commands apply the
+        rules first, while the UI calls this directly for someone at the keyboard."""
+        if not self.store.valid_name(name):
+            raise ValueError("Names can only use letters, digits, '-' and '_'.")
+        if self._enroll is not None:
+            raise ValueError("I'm already enrolling someone. One moment.")
         self._enroll = _Enrollment(name)
         self._enroll_task = asyncio.create_task(self._enroll_timeout(self._enroll))
         return f"Okay {display(name)}. Look at the camera and turn your head slowly."
+
+    @property
+    def enrollment_progress(self) -> Optional[tuple]:
+        """(name, samples so far, samples needed) while enrolling, else None."""
+        en = self._enroll
+        return (en.name, len(en.samples), ENROLL_SAMPLES) if en else None
+
+    def forget_person(self, name: str) -> int:
+        """Delete everything stored about ``name``. Returns the number of samples removed."""
+        n = self.store.remove(name)
+        self.matcher.register_identities(self.store.load_all())
+        if n:
+            self.audit.record("forgotten", name)
+            self.bus.publish(Topic.PEOPLE_CHANGED, name)
+        return n
 
     async def _h_forget(self, c: Command) -> str:
         known = self._visible_known()
@@ -224,9 +251,7 @@ class Orchestrator:
             return "I can only forget you if I can see and recognize you."
         if len(known) > 1:
             return "I see more than one person I know. Please make sure only you are in view."
-        self.store.remove(known[0])
-        self.matcher.register_identities(self.store.load_all())
-        self.audit.record("forgotten", known[0])
+        self.forget_person(known[0])
         return f"Done. I've deleted everything I stored about {display(known[0])}."
 
     async def _h_shutdown(self, c: Command) -> str:
@@ -255,6 +280,7 @@ class Orchestrator:
                 self.store.add(en.name, emb)
             self.matcher.register_identities(self.store.load_all())
             self.audit.record("enrolled", en.name)
+            self.bus.publish(Topic.PEOPLE_CHANGED, en.name)
             self._reply(f"Done. I'll remember you, {display(en.name)}.")
 
     async def _enroll_timeout(self, en: _Enrollment) -> None:

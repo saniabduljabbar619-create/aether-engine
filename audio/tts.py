@@ -79,3 +79,21 @@ class Pyttsx3Speaker:
                 log.exception("speech failed")
             with self._lock:
                 self._spans[-1] = (self._spans[-1][0], time.monotonic())
+
+
+class SwitchableSpeaker:
+    """Wraps a speaker so the UI can mute spoken replies without stopping the engine."""
+
+    def __init__(self, inner: Speaker) -> None:
+        self._inner = inner
+        self.muted = False
+
+    def say(self, text: str) -> None:
+        if not self.muted:
+            self._inner.say(text)
+
+    def was_speaking_at(self, t: float) -> bool:
+        return self._inner.was_speaking_at(t)
+
+    def close(self) -> None:
+        self._inner.close()
