@@ -225,13 +225,22 @@ class MainWindow(QMainWindow):
         self.enroll_lbl.hide()
         lay.addWidget(self.enroll_lbl)
         lay.addWidget(self.enroll_bar)
+        self.lbl_overlap = QLabel("")
+        self.lbl_overlap.setStyleSheet(f"color: {WARN}; background: transparent;")
+        self.lbl_overlap.setWordWrap(True)
+        self.lbl_overlap.hide()
+        lay.addWidget(self.lbl_overlap)
         row = QHBoxLayout()
         self.btn_enroll = QPushButton("Enroll new person...")
         self.btn_enroll.setObjectName("primary")
         self.btn_enroll.clicked.connect(self._enroll)
+        self.btn_add = QPushButton("Add samples")
+        self.btn_add.setToolTip("Capture more views of the selected person")
+        self.btn_add.clicked.connect(self._add_samples)
         self.btn_forget = QPushButton("Forget selected")
         self.btn_forget.clicked.connect(self._forget)
         row.addWidget(self.btn_enroll)
+        row.addWidget(self.btn_add)
         row.addWidget(self.btn_forget)
         lay.addLayout(row)
         return box
@@ -320,11 +329,12 @@ class MainWindow(QMainWindow):
         self.enroll_bar.setVisible(busy)
         self.enroll_lbl.setVisible(busy)
         self.btn_enroll.setEnabled(not busy)
+        self.btn_add.setEnabled(not busy and self._selected_person() is not None)
         if busy:
             name, got, need = prog
             self.enroll_bar.setRange(0, need)
             self.enroll_bar.setValue(got)
-            self.enroll_lbl.setText(f"Enrolling {name.replace('_', ' ')}: look at the camera, turn your head slowly ({got}/{need})")
+            self.enroll_lbl.setText(f"Enrolling {name.replace('_', ' ')} ({got}/{need}): {self.ctl.enrollment_hint}")
 
     def _send(self) -> None:
         text = self.input.text().strip()
@@ -343,11 +353,21 @@ class MainWindow(QMainWindow):
         fut = self.ctl.begin_enrollment(name)
         fut.add_done_callback(lambda f: self.ctl.bridge.error.emit(str(f.exception())) if f.exception() else None)
 
-    def _forget(self) -> None:
+    def _selected_person(self) -> Optional[str]:
         item = self.people.currentItem()
-        if item is None:
+        return item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+
+    def _add_samples(self) -> None:
+        name = self._selected_person()
+        if name is None:
             return
-        name = item.data(Qt.ItemDataRole.UserRole)
+        fut = self.ctl.begin_enrollment(name)  # same name: adds more views to that person
+        fut.add_done_callback(lambda f: self.ctl.bridge.error.emit(str(f.exception())) if f.exception() else None)
+
+    def _forget(self) -> None:
+        name = self._selected_person()
+        if name is None:
+            return
         answer = QMessageBox.question(self, "Forget person",
                                       f"Delete all stored face data for {name.replace('_', ' ')}?")
         if answer == QMessageBox.StandardButton.Yes:
@@ -367,6 +387,9 @@ class MainWindow(QMainWindow):
             self.people.addItem(QListWidgetItem("Nobody enrolled yet"))
             self.people.item(0).setFlags(Qt.ItemFlag.NoItemFlags)
         self.btn_forget.setEnabled(self.people.count() > 0 and self.people.item(0).data(Qt.ItemDataRole.UserRole) is not None)
+        overlaps = self.ctl.identity_overlaps()
+        self.lbl_overlap.setText("\n".join(overlaps))
+        self.lbl_overlap.setVisible(bool(overlaps))
 
     def refresh_activity(self) -> None:
         rows = self.ctl.recent_activity(100)

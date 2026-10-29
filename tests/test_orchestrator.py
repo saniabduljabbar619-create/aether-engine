@@ -16,7 +16,14 @@ from vision.spatial_engine import VectorIdentityMatcher
 from vision.tracker import TrackState
 
 rng = np.random.default_rng(5)
-ALICE, BOB = (rng.normal(size=128).astype(np.float32) for _ in range(2))
+ALICE, BOB, CAROL = (rng.normal(size=128).astype(np.float32) for _ in range(3))
+# yaw of each frame: straight-on, a turn to each side, then straight again (a cooperative person)
+POSES = [0.0] * 4 + [-0.3] * 3 + [0.3] * 3 + [0.0] * 2
+
+
+def view(base):
+    """A slightly different view of the same person."""
+    return (base + rng.normal(size=128) * 0.7).astype(np.float32)
 
 
 class FakeSpeaker:
@@ -48,10 +55,16 @@ class Rig:
         self.bus.publish(Topic.FACES_UPDATED, FacesUpdate(Frame(1, 0.0, None), tracks, 5.0))
         await asyncio.sleep(0.02)
 
-    async def face_sample(self, emb=ALICE, score=0.95, n=1):
-        faces = [FaceDetection((10, 100, 110, 10), score, np.zeros((5, 2), np.float32), emb)] * n
+    async def face_sample(self, emb=ALICE, score=0.95, n=1, yaw=0.0):
+        lm = np.array([[80, 100], [120, 100], [100 + yaw * 40, 125], [88, 150], [112, 150]], np.float32)
+        faces = [FaceDetection((10, 100, 110, 10), score, lm, view(emb))] * n
         self.bus.publish(Topic.FACE_DETECTED, FaceEvent(Frame(1, 0.0, None), faces, 5.0))
         await asyncio.sleep(0.02)
+
+    async def enroll_frames(self, base, poses=POSES):
+        """Show one person turning their head through the given yaws."""
+        for yaw in poses:
+            await self.face_sample(base, yaw=yaw)
 
 
 @pytest.fixture
@@ -136,8 +149,7 @@ async def test_stale_view_is_ignored(rig, monkeypatch):
 async def test_bootstrap_enrollment_when_nobody_is_enrolled(rig):
     await rig.hear("Aether, enroll me as Sani")
     assert rig.replies[-1].startswith("Okay Sani")
-    for _ in range(orch_mod.ENROLL_SAMPLES):
-        await rig.face_sample(BOB)
+    await rig.enroll_frames(BOB)
     assert rig.replies[-1] == "Done. I'll remember you, Sani."
     assert len(rig.store.load_all()["Sani"]) == orch_mod.ENROLL_SAMPLES
     (label, _), = rig.matcher.search_batch(BOB[None])
@@ -149,6 +161,7 @@ async def test_enrollment_ignores_bad_frames(rig):
     await rig.face_sample(BOB, n=2)  # two faces
     await rig.face_sample(BOB, score=0.5)  # not confident
     assert rig.store.load_all() == {} and rig.orch._enroll.samples == []
+    assert "isn't clear" in rig.orch.enrollment_hint
 
 
 async def test_enrollment_needs_a_name(rig):
@@ -248,3 +261,60 @@ async def test_audit_trail_and_recent_activity(rig):
     kinds = [k for _, k, _ in rig.audit.recent(10)]
     assert "face_recognized" in kinds and "command" in kinds
     assert rig.replies[-1].startswith("Recently:") and "face recognized Alice" in rig.replies[-1]
+
+
+async def test_enrolling_an_already_enrolled_face_under_a_new_name_is_stopped(rig):
+    """The mistake from the first real run: one face enrolled twice under two names."""
+    enrolled(rig, "Alice", ALICE)
+    await rig.see("Alice")
+    await rig.hear("Aether enroll me as Bob")
+    assert rig.orch._enroll is not None
+    await rig.enroll_frames(ALICE)  # it is actually Alice
+    assert "already matches Alice" in rig.replies[-1] and "Nothing was saved" in rig.replies[-1]
+    assert rig.orch._enroll is None and list(rig.store.load_all()) == ["Alice"]
+    assert len(rig.store.load_all()["Alice"]) == 1
+
+
+async def test_adding_samples_to_your_own_name_is_allowed(rig):
+    enrolled(rig, "Alice", ALICE)
+    await rig.see("Alice")
+    await rig.hear("Aether enroll me as Alice")
+    await rig.enroll_frames(ALICE)
+    assert rig.replies[-1] == "Done. I'll remember you, Alice."
+    assert len(rig.store.load_all()["Alice"]) == 1 + orch_mod.ENROLL_SAMPLES
+
+
+async def test_two_people_taking_turns_are_rejected(rig):
+    await rig.hear("Aether enroll me as Sani")
+    for i, yaw in enumerate(POSES):
+        await rig.face_sample(BOB if i % 2 else CAROL, yaw=yaw)  # alternating faces
+    assert "don't look like one person" in rig.replies[-1]
+    assert rig.store.load_all() == {} and rig.orch._enroll is None
+
+
+async def test_ui_can_start_enrollment_and_read_progress_and_hint(rig):
+    assert rig.orch.enrollment_progress is None and rig.orch.enrollment_hint == ""
+    rig.orch.begin_enrollment("Sani")
+    assert rig.orch.enrollment_progress == ("Sani", 0, orch_mod.ENROLL_SAMPLES)
+    assert "straight at the camera" in rig.orch.enrollment_hint
+    for yaw in POSES[:4]:
+        await rig.face_sample(BOB, yaw=yaw)
+    assert rig.orch.enrollment_progress[1] == 4 and "turn your head" in rig.orch.enrollment_hint
+    await rig.enroll_frames(BOB, POSES[4:])
+    assert rig.orch.enrollment_progress is None and rig.orch.enrollment_hint == ""
+
+
+async def test_spoken_hints_are_throttled(rig, monkeypatch):
+    monkeypatch.setattr(orch_mod, "HINT_EVERY", 1000.0)
+    await rig.hear("Aether enroll me as Sani")
+    await rig.enroll_frames(BOB)
+    hints = [t for t in rig.speaker.said if t in ("Look straight at the camera.",) or "turn your head" in t.lower()]
+    assert len(hints) <= 2  # one reply carries the first instruction; the rest are not repeated aloud
+
+
+async def test_closing_cancels_an_enrollment_in_progress(rig):
+    rig.orch.begin_enrollment("Sani")
+    task = rig.orch._enroll_task
+    rig.orch.close()
+    await asyncio.sleep(0.01)
+    assert rig.orch.enrollment_progress is None and task.cancelled()

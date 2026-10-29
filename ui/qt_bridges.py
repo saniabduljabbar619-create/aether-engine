@@ -224,6 +224,13 @@ class EngineController(QObject):
     def enrollment_progress(self):
         return self.engine.orch.enrollment_progress if self.engine and self.engine.orch else None
 
+    @property
+    def enrollment_hint(self) -> str:
+        return self.engine.orch.enrollment_hint if self.engine and self.engine.orch else ""
+
+    def identity_overlaps(self) -> List[str]:
+        return self.engine.overlap_warnings() if self.engine else []
+
     def enrolled(self) -> dict:
         """{name: number of samples}"""
         if self.engine is None:
