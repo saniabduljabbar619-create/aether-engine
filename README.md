@@ -67,6 +67,25 @@ Analyze a single image: `python -m examples.detect_demo --image photo.jpg --save
 
 Note: SFace's recommended cosine threshold is **0.363**, which is now the default.
 
+## Face recognition
+
+```bash
+python -m examples.enroll <your-name>      # webcam, 10 samples; or --image a.jpg b.jpg
+python -m examples.enroll --list           # who is enrolled
+python -m examples.recognize_demo          # live recognition, q to quit
+```
+
+![known](docs/screenshots/recognition_known.png)
+*Simulated camera showing a public-domain photo, enrolled as "astronaut".*
+
+How it works: each face embedding is matched against all enrolled embeddings with one matrix
+multiply (`vision/spatial_engine.py`). `vision/tracker.py` follows faces between frames by box
+overlap (IoU), smooths boxes, and only commits to a name after a majority of recent frames agree,
+so a single bad frame can't flip an identity. `FACE_RECOGNIZED` fires once per person, with a
+30 s cooldown against repeat greetings.
+
+Privacy: embeddings are stored locally in `storage/reference_faces/` and git-ignored.
+
 ## Build order
 
 1. `core/event_bus.py` 2. `config/settings.py` 3. `vision/spatial_engine.py`

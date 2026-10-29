@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     similarity_threshold: float = Field(0.363, ge=0.0, le=1.0)
     whisper_model: str = "small"
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
+    faces_dir: str = "storage/reference_faces"
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
