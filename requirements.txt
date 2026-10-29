@@ -4,8 +4,6 @@ pydantic>=2.5
 pydantic-settings>=2.1
 # Vision
 opencv-python>=4.9
-mediapipe>=0.10
-deepface>=0.0.93
 # Audio
 faster-whisper>=1.0
 sounddevice>=0.4

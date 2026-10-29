@@ -19,7 +19,7 @@ import threading
 import time
 from concurrent.futures import Future
 from dataclasses import dataclass
-from typing import Any, Awaitable, List, Optional, Tuple, TypeVar
+from typing import Awaitable, List, Optional, Tuple, TypeVar
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal

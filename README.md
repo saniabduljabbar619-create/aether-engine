@@ -1,5 +1,7 @@
 # Aether-Vision Engine
 
+[![tests](https://github.com/saniabduljabbar619-create/aether-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/saniabduljabbar619-create/aether-engine/actions/workflows/tests.yml)
+
 Async, event-driven multimodal AI system: face recognition (vectorized embedding
 matching + temporal stabilization) and local speech (VAD + faster-whisper),
 coordinated by an asyncio event bus, with a PySide6 desktop UI.
@@ -117,6 +119,23 @@ Design notes: the asyncio engine runs on its own thread and the window only talk
 `EngineController` (`ui/qt_bridges.py`). Video frames pass through a latest-frame mailbox, so a slow UI
 skips frames instead of lagging. Enrolling from the window is allowed without a recognized person in
 view, because whoever sits at the keyboard is the administrator; the voice rules still apply to voice.
+
+## Development and tests
+
+```bash
+pip install -e ".[dev,ci]"   # test tools + headless OpenCV and PySide6 (no Whisper or audio needed)
+python -m pytest             # about 180 tests, ~15 s
+ruff check .                 # lint: syntax errors, undefined names, unused imports
+```
+
+GitHub Actions (`.github/workflows/tests.yml`) runs lint and the tests on every pull request and push
+to `main`: Python 3.10 (the declared minimum), 3.12 and 3.13 on Linux, plus Windows as a non-blocking
+extra. The tests need no camera, microphone or Whisper model; the two small face models are downloaded
+and cached. In CI the flag `AETHER_REQUIRE_ALL=1` turns "optional piece missing" from a quiet skip into a
+failure, so a green check always means the whole suite ran (`tests/_optional.py`).
+
+To make the check mandatory: GitHub, Settings, Branches, add a rule for `main`, tick "Require status
+checks to pass" and select the `lint` and `tests (...)` checks.
 
 ## Enrollment quality
 

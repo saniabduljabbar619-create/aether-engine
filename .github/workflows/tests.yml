@@ -1,0 +1,90 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a PR cancels the older run of that PR.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  QT_QPA_PLATFORM: offscreen # Qt draws into memory: no display needed
+  # A missing optional dependency or model must FAIL here, never silently skip tests
+  # (see tests/_optional.py). A green check has to mean the whole suite ran.
+  AETHER_REQUIRE_ALL: "1"
+  PYTHONUTF8: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.4"
+      - run: ruff check .
+
+  test:
+    name: tests (python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    # Windows is the platform the app is mainly used on, but its runners are untested for the
+    # timing-sensitive tests, so for now a Windows failure is reported without blocking.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.10", experimental: false } # the declared minimum
+          - { os: ubuntu-latest, python: "3.12", experimental: false }
+          - { os: ubuntu-latest, python: "3.13", experimental: false }
+          - { os: windows-latest, python: "3.12", experimental: true }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Libraries Qt needs even when drawing offscreen (Windows wheels bundle everything).
+      - name: System libraries for Qt
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
+      # Headless OpenCV and PySide6-Essentials: the declared dependencies, nothing else
+      # (no Whisper, no audio library: the tests must pass without them).
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ci]"
+
+      # The two face models (about 39 MB). The download is checksum-verified by the code itself.
+      - name: Cache face models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('vision/detector.py') }} # the file that pins their URLs and hashes
+
+      - name: Get face models
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            python -c "from vision.detector import ensure_models; ensure_models()" && exit 0
+            echo "download attempt $attempt failed"; sleep 10
+          done
+          exit 1
+
+      - name: Tests
+        run: python -m pytest -ra --durations=5

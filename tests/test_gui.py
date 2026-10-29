@@ -6,7 +6,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-pytest.importorskip("PySide6")
+from tests._optional import optional_module
+
+optional_module("PySide6")
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
@@ -115,7 +117,9 @@ def test_full_gui_flow(qapp, tmp_path, monkeypatch):
     win.show()
     ctl.start()
     try:
-        chat = lambda: win.chat.toPlainText()
+        def chat():
+            return win.chat.toPlainText()
+
         # startup, live video, recognition + greeting
         assert wait_for(qapp, lambda: "Ready." in chat())
         assert wait_for(qapp, lambda: win.video._image is not None)
