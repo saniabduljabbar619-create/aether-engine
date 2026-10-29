@@ -35,6 +35,23 @@ class VectorIdentityMatcher:
         self.known_embeddings = np.asarray(vectors, dtype=np.float32) if vectors else None
         self.known_labels = labels
 
+    def overlapping_identities(self, threshold: Optional[float] = None) -> List[Tuple[str, str, float]]:
+        """Pairs of enrolled names whose average faces match each other, i.e. probably the same
+        person enrolled twice. Returns [(name_a, name_b, similarity)], most similar first."""
+        if self.known_embeddings is None:
+            return []
+        threshold = self.similarity_threshold if threshold is None else threshold
+        names = sorted(set(self.known_labels))
+        centroids = []
+        for name in names:
+            rows = self.known_embeddings[[i for i, lbl in enumerate(self.known_labels) if lbl == name]]
+            c = rows.mean(axis=0)
+            centroids.append(c / (np.linalg.norm(c) + 1e-12))
+        sims = np.stack(centroids) @ np.stack(centroids).T
+        pairs = [(names[i], names[j], float(sims[i, j]))
+                 for i in range(len(names)) for j in range(i + 1, len(names)) if sims[i, j] >= threshold]
+        return sorted(pairs, key=lambda t: -t[2])
+
     def search_batch(self, queries: np.ndarray) -> List[Tuple[Optional[str], float]]:
         """queries: (M, D). Returns [(label | 'Unknown', score)] per query."""
         if self.known_embeddings is None or len(self.known_embeddings) == 0:

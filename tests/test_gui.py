@@ -21,7 +21,8 @@ from ui.qt_bridges import EngineController, QtBridge
 from vision.detector import FaceDetection
 from vision.tracker import TrackState
 
-EMB = np.random.default_rng(7).normal(size=128).astype(np.float32)
+EMB, BOB = (np.random.default_rng(7).normal(size=128).astype(np.float32),
+             np.random.default_rng(8).normal(size=128).astype(np.float32))
 
 
 @pytest.fixture(scope="module")
@@ -40,9 +41,21 @@ def wait_for(app, cond, timeout=8.0):
     return cond()
 
 
+YAWS = [0.0, 0.0, 0.0, 0.0, -0.3, -0.3, -0.3, 0.3, 0.3, 0.3]
+
+
 class FakeAnalyzer:
+    """One face whose pose and exact embedding change every frame, like a real person moving."""
+
+    def __init__(self):
+        self.emb, self.n, self.rng = EMB, 0, np.random.default_rng(11)
+
     def analyze(self, image):
-        return [FaceDetection((60, 260, 260, 60), 0.95, np.zeros((5, 2), np.float32), EMB)]
+        self.n += 1
+        yaw = YAWS[self.n % len(YAWS)]
+        lm = np.array([[80, 100], [120, 100], [100 + yaw * 40, 125], [88, 150], [112, 150]], np.float32)
+        emb = (self.emb + self.rng.normal(size=128) * 0.7).astype(np.float32)
+        return [FaceDetection((60, 260, 260, 60), 0.95, lm, emb)]
 
 
 class FakeCamera:
@@ -95,8 +108,9 @@ def test_full_gui_flow(qapp, tmp_path, monkeypatch):
     cfg = Settings(faces_dir=str(tmp_path / "faces"), db_path=str(tmp_path / "a.db"))
     FaceStore(cfg.faces_dir).add("Alice", EMB)
 
+    analyzer = FakeAnalyzer()
     ctl = EngineController(dict(cfg=cfg, camera=True, voice=False, tts=False,
-                                analyzer=FakeAnalyzer(), camera_source_factory=FakeCamera))
+                                analyzer=analyzer, camera_source_factory=FakeCamera))
     win = MainWindow(ctl)
     win.show()
     ctl.start()
@@ -126,7 +140,8 @@ def test_full_gui_flow(qapp, tmp_path, monkeypatch):
         kinds = {win.table.item(r, 1).text() for r in range(win.table.rowCount())}
         assert {"face recognized", "command"} <= kinds
 
-        # enrolling from the UI: progress is visible, then the list updates by itself
+        # enrolling from the UI (a different person steps in): progress is visible, then the list updates
+        analyzer.emb = BOB
         assert ctl.begin_enrollment("Bob").result(timeout=5).startswith("Okay Bob")
         assert wait_for(qapp, lambda: win.enroll_bar.isVisible() is False and "Bob" in " ".join(
             win.people.item(i).text() for i in range(win.people.count())), timeout=12)
@@ -170,3 +185,48 @@ def test_dim_light_hint(qapp):
     win._poll_state()
     assert not win.lbl_hint.isVisible()  # no camera, no hint
     win.close()
+
+
+def _start(qapp, tmp_path, store_setup=None):
+    cfg = Settings(faces_dir=str(tmp_path / "faces"), db_path=str(tmp_path / "a.db"), _env_file=None)
+    if store_setup:
+        store_setup(FaceStore(cfg.faces_dir))
+    analyzer = FakeAnalyzer()
+    ctl = EngineController(dict(cfg=cfg, camera=True, voice=False, tts=False,
+                                analyzer=analyzer, camera_source_factory=FakeCamera))
+    win = MainWindow(ctl)
+    win.show()
+    ctl.start()
+    return win, ctl, analyzer
+
+
+def test_warns_when_one_person_is_enrolled_under_two_names(qapp, tmp_path):
+    def two_names(store):
+        for name in ("Asak", "YourName"):  # the same face, enrolled twice
+            for _ in range(4):
+                store.add(name, (EMB + np.random.default_rng(3).normal(size=128) * 0.5).astype(np.float32))
+
+    win, ctl, _ = _start(qapp, tmp_path, two_names)
+    try:
+        assert wait_for(qapp, lambda: "Ready." in win.chat.toPlainText())
+        assert "look like the same person" in win.chat.toPlainText()
+        assert win.lbl_overlap.isVisible() and "Asak and YourName" in win.lbl_overlap.text()
+    finally:
+        win.close()
+
+
+def test_add_samples_button_and_live_hint(qapp, tmp_path, monkeypatch):
+    monkeypatch.setattr(orch_mod, "ENROLL_MIN_GAP", 0.0)
+    win, ctl, _ = _start(qapp, tmp_path, lambda store: store.add("Alice", EMB))
+    try:
+        assert wait_for(qapp, lambda: win.people.count() == 1 and win.people.item(0).text().startswith("Alice"))
+        win.people.setCurrentRow(0)
+        win._poll_state()
+        assert win.btn_add.isEnabled()
+        win._add_samples()
+        assert wait_for(qapp, lambda: not win.btn_add.isEnabled())  # busy: can't start a second enrollment
+        seen_hint = wait_for(qapp, lambda: "turn your head" in win.enroll_lbl.text() or "straight" in win.enroll_lbl.text(), 3)
+        assert wait_for(qapp, lambda: ctl.enrolled().get("Alice") == 1 + orch_mod.ENROLL_SAMPLES, timeout=12)
+        assert seen_hint or "Done." in win.chat.toPlainText()
+    finally:
+        win.close()

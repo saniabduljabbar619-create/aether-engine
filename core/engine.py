@@ -51,6 +51,7 @@ class Engine:
     async def start(self) -> None:
         await self.bus.start()
         self.matcher.register_identities(self.store.load_all())
+        self.warnings.extend(self.overlap_warnings())
 
         inner = NullSpeaker()
         if self._use_tts:
@@ -74,6 +75,8 @@ class Engine:
         self._on_status("Ready")
 
     async def stop(self) -> None:
+        if self.orch:
+            self.orch.close()
         for fn in reversed(self._closers):
             try:
                 res = fn()
@@ -86,6 +89,12 @@ class Engine:
             self.speaker.close()
         await self.bus.stop()
         self.audit.close()
+
+    def overlap_warnings(self) -> List[str]:
+        """One sentence per pair of enrolled names that look like the same person."""
+        return [f"{a.replace('_', ' ')} and {b.replace('_', ' ')} look like the same person "
+                f"(similarity {score:.2f}). Forget one of them, or recognition will flip between the two names."
+                for a, b, score in self.matcher.overlapping_identities()]
 
     # ---- internals -------------------------------------------------------
     def _status_text(self) -> str:

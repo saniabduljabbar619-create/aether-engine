@@ -118,6 +118,33 @@ Design notes: the asyncio engine runs on its own thread and the window only talk
 skips frames instead of lagging. Enrolling from the window is allowed without a recognized person in
 view, because whoever sits at the keyboard is the administrator; the voice rules still apply to voice.
 
+## Enrollment quality
+
+Enrollment keeps a few **different, clear** views of one person, not ten copies of one frame
+(`vision/enrollment.py`). While you enroll it coaches you ("Look straight at the camera", "Slowly turn
+your head a little to your right"), by voice and in the window. It
+
+- accepts a sample only when exactly one clear, large-enough face is in view,
+- asks for straight-on and slightly turned views, and waives the turns after 18 s for anyone who cannot,
+- skips near-identical frames so every sample adds a new view,
+- stops early if the face already matches someone else enrolled ("That face already matches X"),
+- and at the end checks the samples agree with each other, so two people taking turns are rejected.
+
+At startup (and in the People box) it warns when two names look like the same person, which makes
+recognition flip between them. **Add samples** adds more views to an existing person.
+
+![duplicate warning](docs/screenshots/gui_duplicate_warning.png)
+![coaching](docs/screenshots/gui_enrollment_coaching.png)
+*Real face models on a simulated static camera: the warning for one face enrolled under two names, and
+the coaching hint when nothing in the picture moves.*
+
+Design note: darkness only produces a warning, never a rejection. An absolute brightness cut-off would
+penalize darker skin tones and dim rooms. Quality comes from signals that do not depend on skin tone:
+detector confidence, face size, pose variety, duplicate rejection and sample consistency. The head-turn
+estimate averages the nose position against the eye line and the mouth line, which halved its noise in
+measurements. The thresholds (turn 0.12, duplicate 0.96, consistency 0.45) are checked with synthetic
+data and one real photo, not yet with many real people.
+
 ## Tuning for your machine
 
 Settings come from environment variables or a `.env` file in the project folder (see `.env.example`).
@@ -150,7 +177,7 @@ Say the wake word first, so ordinary conversation is ignored: **"Aether, ..."**
 | Say | What happens |
 |-----|--------------|
 | who is at the camera / who am I | describes who is in view |
-| enroll me as `<name>` | captures 8 samples of the one face in view, then remembers it |
+| enroll me as `<name>` | captures 10 varied views of the one face in view, then remembers it |
 | forget me | deletes the recognized person's stored face data |
 | who do you know / status / recent activity | lists enrolled people / system status / last audit events |
 | what time is it / what's the date | |

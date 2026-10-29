@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 import time
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional
+
+import numpy as np
 
 from audio.stt_engine import TYPED, Transcript
 from audio.tts import NullSpeaker, Speaker
@@ -28,17 +30,19 @@ from core.event_bus import Event, EventBus, Topic
 from storage.face_store import FaceStore
 from storage.local_db import AuditLog
 from vision.detector import FaceEvent
+from vision.enrollment import CENTER, PROMPTS, EnrollmentSession, cohesion
 from vision.recognition import FacesUpdate, Recognition
 from vision.spatial_engine import VectorIdentityMatcher
 from vision.tracker import UNKNOWN
 
 log = logging.getLogger("aether.orchestrator")
 
-ENROLL_SAMPLES = 8
-ENROLL_MIN_GAP = 0.5  # seconds between samples
-ENROLL_MIN_SCORE = 0.9
-ENROLL_MIN_HEIGHT = 80  # px
-ENROLL_TIMEOUT = 25.0
+ENROLL_SAMPLES = 10
+ENROLL_MIN_GAP = 0.4  # seconds between accepted samples
+ENROLL_TIMEOUT = 40.0
+ENROLL_COHESION_MIN = 0.45  # samples of one person agree well above this; two people mixed fall below
+DUPLICATE_CHECK_AT = 3  # after this many samples, check the face is not someone already enrolled
+HINT_EVERY = 3.0  # seconds between spoken enrollment hints
 VIEW_FRESH = 1.5  # a FACES_UPDATED older than this no longer describes "who is here"
 
 Handler = Callable[[Command], Awaitable[str]]
@@ -46,13 +50,6 @@ Handler = Callable[[Command], Awaitable[str]]
 
 def display(name: str) -> str:
     return name.replace("_", " ")
-
-
-@dataclass
-class _Enrollment:
-    name: str
-    samples: list = field(default_factory=list)
-    last: float = 0.0
 
 
 class Orchestrator:
@@ -68,7 +65,10 @@ class Orchestrator:
         self.listening = True  # the UI can pause voice commands
         self._view: Optional[FacesUpdate] = None
         self._view_at = 0.0
-        self._enroll: Optional[_Enrollment] = None
+        self._enroll: Optional[EnrollmentSession] = None
+        self._enroll_hint = ""
+        self._hint_said = ("", float("-inf"))
+        self._dup_checked = False
         self._enroll_task: Optional[asyncio.Task] = None
         self._handlers: Dict[str, Handler] = {
             "attention": self._h_attention, "unknown": self._h_unknown, "help": self._h_help,
@@ -77,6 +77,10 @@ class Orchestrator:
             "who_am_i": self._h_who_am_i, "who_known": self._h_who_known, "enroll": self._h_enroll,
             "forget_me": self._h_forget, "shutdown": self._h_shutdown,
         }
+
+    def close(self) -> None:
+        """Stop background work (an enrollment in progress) before the bus shuts down."""
+        self._end_enrollment()
 
     def register_handler(self, intent: str, patterns: List[str], handler: Handler) -> None:
         """Add a custom voice command, e.g. unlocking a door via your own hardware code."""
@@ -226,15 +230,21 @@ class Orchestrator:
             raise ValueError("Names can only use letters, digits, '-' and '_'.")
         if self._enroll is not None:
             raise ValueError("I'm already enrolling someone. One moment.")
-        self._enroll = _Enrollment(name)
+        self._enroll = EnrollmentSession(name, needed=ENROLL_SAMPLES, min_gap=ENROLL_MIN_GAP)
+        self._enroll_hint, self._dup_checked = PROMPTS[CENTER], False
         self._enroll_task = asyncio.create_task(self._enroll_timeout(self._enroll))
-        return f"Okay {display(name)}. Look at the camera and turn your head slowly."
+        return f"Okay {display(name)}. {PROMPTS[CENTER]} Then slowly turn your head a little to each side."
 
     @property
     def enrollment_progress(self) -> Optional[tuple]:
         """(name, samples so far, samples needed) while enrolling, else None."""
         en = self._enroll
-        return (en.name, len(en.samples), ENROLL_SAMPLES) if en else None
+        return (en.name, len(en.samples), en.needed) if en else None
+
+    @property
+    def enrollment_hint(self) -> str:
+        """What the person enrolling should do right now (for the UI)."""
+        return self._enroll_hint if self._enroll else ""
 
     def forget_person(self, name: str) -> int:
         """Delete everything stored about ``name``. Returns the number of samples removed."""
@@ -258,33 +268,69 @@ class Orchestrator:
         self.shutdown.set()
         return "Goodbye."
 
-    # ---- voice-triggered enrollment -------------------------------------
+    # ---- enrollment (voice or UI) ----------------------------------------
     async def _on_detected(self, e: Event) -> None:
         en = self._enroll
         if en is None:
             return
         ev: FaceEvent = e.payload
         now = time.monotonic()
-        if len(ev.faces) != 1 or now - en.last < ENROLL_MIN_GAP:
-            return
-        f = ev.faces[0]
-        if f.score < ENROLL_MIN_SCORE or f.bbox[2] - f.bbox[0] < ENROLL_MIN_HEIGHT:
-            return
-        en.samples.append(f.embedding)
-        en.last = now
-        if len(en.samples) >= ENROLL_SAMPLES:
-            self._enroll = None
-            if self._enroll_task:
-                self._enroll_task.cancel()
-            for emb in en.samples:
-                self.store.add(en.name, emb)
-            self.matcher.register_identities(self.store.load_all())
-            self.audit.record("enrolled", en.name)
-            self.bus.publish(Topic.PEOPLE_CHANGED, en.name)
-            self._reply(f"Done. I'll remember you, {display(en.name)}.")
+        img = ev.frame.image
+        brightness = float(img[::16, ::16].mean()) if img is not None else 255.0
+        fb = en.offer(ev.faces, brightness, now)
+        self._enroll_hint = fb.text
+        self._say_hint(fb.text, now)
+        if fb.accepted and not self._dup_checked and len(en.samples) >= DUPLICATE_CHECK_AT:
+            self._dup_checked = True
+            other = self._matches_someone_else(en)
+            if other:
+                name, score = other
+                self._end_enrollment()
+                self._reply(f"That face already matches {display(name)} ({score:.2f}). If that's you, enroll as "
+                            f"{display(name)} to add samples, otherwise forget {display(name)} first. Nothing was saved.")
+                return
+        if fb.done:
+            self._finish_enrollment(en)
 
-    async def _enroll_timeout(self, en: _Enrollment) -> None:
+    def _say_hint(self, text: str, now: float) -> None:
+        """Speak a hint only when it changes, and not more often than every few seconds."""
+        last_text, last_time = self._hint_said
+        if text != last_text and now - last_time >= HINT_EVERY:
+            self._hint_said = (text, now)
+            self.speaker.say(text)
+
+    def _matches_someone_else(self, en: EnrollmentSession):
+        """(name, score) if the new samples are clearly an already-enrolled OTHER person."""
+        results = self.matcher.search_batch(np.stack(en.samples))
+        votes = Counter(lbl for lbl, _ in results if lbl and lbl != UNKNOWN and lbl != en.name)
+        if not votes:
+            return None
+        name, n = votes.most_common(1)[0]
+        if n < 2:
+            return None
+        return name, float(np.mean([s for lbl, s in results if lbl == name]))
+
+    def _end_enrollment(self) -> None:
+        self._enroll, self._enroll_hint = None, ""
+        if self._enroll_task:
+            self._enroll_task.cancel()
+
+    def _finish_enrollment(self, en: EnrollmentSession) -> None:
+        self._end_enrollment()
+        consistency = cohesion(en.samples)
+        if consistency < ENROLL_COHESION_MIN:
+            self._reply("Those samples don't look like one person, so I haven't saved them. "
+                        "Please try again with only you in front of the camera.")
+            return
+        for emb in en.samples:
+            self.store.add(en.name, emb)
+        self.matcher.register_identities(self.store.load_all())
+        self.audit.record("enrolled", f"{en.name} ({len(en.samples)} samples, consistency {consistency:.2f})")
+        self.bus.publish(Topic.PEOPLE_CHANGED, en.name)
+        self._reply(f"Done. I'll remember you, {display(en.name)}.")
+
+    async def _enroll_timeout(self, en: EnrollmentSession) -> None:
         await asyncio.sleep(ENROLL_TIMEOUT)
         if self._enroll is en:
-            self._enroll = None
-            self._reply("I couldn't get a clear view of one face. Enrollment cancelled; nothing was saved.")
+            self._end_enrollment()
+            self._reply("I couldn't get enough clear views of one face. Enrollment cancelled; nothing was saved.")
