@@ -1,4 +1,5 @@
 """The optional chat model: talks to a fake Ollama server on this machine; no real model needed."""
+import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -105,10 +106,18 @@ async def test_chatter_without_a_conversation_is_never_sent_to_the_model(rig, ol
     assert ollama.requests == [] and rig.replies == []
 
 
+async def wait_for_reply(rig, count, timeout=10.0):
+    """A refused connection can take a second or two to fail on Windows."""
+    end = asyncio.get_running_loop().time() + timeout
+    while len(rig.replies) < count and asyncio.get_running_loop().time() < end:
+        await asyncio.sleep(0.05)
+
+
 async def test_model_failure_falls_back_politely_and_builtin_commands_still_work(rig, ollama):
     ollama.close()
     rig.orch.assistant = Assistant(OllamaClient("m", ollama.host, timeout=1))
     await rig.hear("aether tell me a joke")
+    await wait_for_reply(rig, 1)
     assert "can't reach my thinking model" in rig.replies[-1]
     await rig.hear("aether what time is it")
     assert rig.replies[-1].startswith("It's ")
