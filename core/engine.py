@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Callable, List, Optional
 
 from audio.tts import NullSpeaker, SwitchableSpeaker
 from config.settings import Settings, get_settings
 from core.commands import CommandRouter
 from core.event_bus import EventBus
-from core.orchestrator import Orchestrator
+from core.llm import Assistant, OllamaClient
+from core.orchestrator import Orchestrator, display
 from storage.face_store import FaceStore
 from storage.local_db import AuditLog
 from vision.spatial_engine import VectorIdentityMatcher
@@ -70,6 +72,7 @@ class Engine:
                                  require_liveness=self.cfg.require_liveness,
                                  verified_seconds=self.cfg.verified_seconds,
                                  status_fn=self._status_text, on_reply=self._on_reply)
+        self.orch.assistant = self._make_assistant()
         self.orch.start()
 
         await self._load_models()
@@ -94,6 +97,26 @@ class Engine:
             self.speaker.close()
         await self.bus.stop()
         self.audit.close()
+
+    def _make_assistant(self):
+        """The optional local chat model. Any problem setting it up just leaves it off."""
+        if not self.cfg.llm_enabled:
+            return None
+        try:
+            client = OllamaClient(self.cfg.llm_model, self.cfg.llm_host, self.cfg.llm_timeout,
+                                  self.cfg.llm_allow_remote)
+        except ValueError as exc:
+            log.error("chat model disabled: %s", exc)
+            return None
+        orch = self.orch
+
+        def context() -> str:
+            now = datetime.now()
+            seen = ", ".join(display(n) for n in orch._visible_known()) or "nobody I know"
+            return f"- It is {now.strftime('%A %B %d, %I:%M %p')}.\n- In front of the camera: {seen}."
+
+        log.info("chat model: %s at %s", self.cfg.llm_model, self.cfg.llm_host)
+        return Assistant(client, self.cfg.wake_word_list[0].title(), context)
 
     def overlap_warnings(self) -> List[str]:
         """One sentence per pair of enrolled names that look like the same person."""

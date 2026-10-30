@@ -188,6 +188,27 @@ estimate averages the nose position against the eye line and the mouth line, whi
 measurements. The thresholds (turn 0.12, duplicate 0.96, consistency 0.45) are checked with synthetic
 data and one real photo, not yet with many real people.
 
+## Chat model and friendlier voice
+
+**Chat (optional, local).** Anything the built-in commands do not cover ("Aether, why is the sky blue?") can go to a
+small language model running on your own computer through [Ollama](https://ollama.com). It is off by default.
+
+    ollama pull llama3.2:3b
+    python -m examples.llm_check            # no camera or mic needed
+    # then in .env:  AETHER_LLM_ENABLED=true
+
+It is **read-only**: its words are only spoken or shown, never run, so it cannot enroll, forget or unlock anything;
+those stay with the rule-based commands and their safety rules. The prompt names who is in view, so the server must
+be on this computer (`AETHER_LLM_ALLOW_REMOTE=true` overrides). If Ollama is not running you hear one polite line and
+the built-in commands keep working. A 3B model on a T440-class CPU takes several seconds per answer; try `llama3.2:1b`
+if that is too slow.
+
+**Friendlier activation.**
+- The wake word works at the end too: "what time is it, Aether?"
+- After an answer from the chat model you can keep talking without the wake word until a pause (about 10 s) or
+  "thanks" / "that's all". Without a conversation going, chatter is still ignored.
+- A bare "Aether" now answers "I'm listening." and opens a listening window.
+
 ## Liveness check ("verify me")
 
 Face recognition alone can be fooled by a photo. "Verify me" asks you to turn your head to a **randomly chosen**

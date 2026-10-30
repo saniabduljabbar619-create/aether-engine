@@ -134,3 +134,12 @@ def test_wake_name_is_for_display():
     assert CommandRouter().wake_name == "Aether"
     assert CommandRouter(wake_words=["computer", "aether"]).wake_name == "Computer"
     assert CommandRouter(wake_words=[" ", ""]).wake_name == "Aether"  # never empty
+
+
+def test_wake_word_at_the_end_of_a_sentence_counts():
+    from core.commands import CommandRouter
+    r = CommandRouter()
+    assert r.parse("what time is it, Aether?").intent == "time"
+    assert r.parse("what time is it") is None  # no wake word at all
+    assert r.parse("hey aether").intent == "attention"
+    assert r.parse("it is a nice weather") is None  # 'weather' is not the wake word

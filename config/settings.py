@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # (a head-turn challenge that a photo cannot pass). Try "verify me" yourself before switching it on.
     require_liveness: bool = False
     verified_seconds: float = Field(60.0, gt=0)  # how long a passed check stays valid
+    # Optional local chat model (Ollama) for questions the built-in commands do not cover. Off by default.
+    llm_enabled: bool = False
+    llm_model: str = "llama3.2:3b"
+    llm_host: str = "http://127.0.0.1:11434"
+    llm_timeout: float = Field(30.0, gt=0)
+    llm_allow_remote: bool = False  # the prompt names who is in view, so it stays on this computer unless you say so
     follow_up_seconds: float = Field(10.0, ge=0)  # after Aether speaks, safe commands need no wake word for this long
     whisper_threads: int = Field(0, ge=0)  # 0 = half of the CPU threads, so the camera stays smooth
     detect_max_fps: float = Field(10.0, gt=0)  # face detection rate cap; frees CPU for speech
