@@ -20,6 +20,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Pattern, Sequence, Tuple
 
 WAKE_WORD = "aether"
+END_CHAT = re.compile(r"\b(thanks|thank you|that'?s all|never ?mind|stop|bye|good ?bye|cancel)\b")
 _FILLERS = {"hey", "hi", "hello", "ok", "okay", "yo", "please"}
 
 
@@ -131,6 +132,12 @@ class CommandRouter:
                 stripped.pop(0)
             n = match_wake(stripped, self.wake_words)
             rest, woke = (stripped[n:], True) if n else (stripped, False)
+            if not woke:  # "what time is it, Aether?": the wake word at the END counts too
+                for wake in self.wake_words:
+                    k = len(wake.split())
+                    if len(stripped) > k and is_wake_word(" ".join(stripped[-k:]), wake):
+                        rest, woke = stripped[:-k], True
+                        break
         if not woke and mode is Addressing.WAKE:
             return None
         text = " ".join(rest)

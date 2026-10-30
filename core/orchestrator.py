@@ -26,7 +26,8 @@ import numpy as np
 
 from audio.stt_engine import TYPED, Transcript
 from audio.tts import NullSpeaker, Speaker
-from core.commands import SAFE_WITHOUT_WAKE, Addressing, Command, CommandRouter
+from core.commands import END_CHAT, SAFE_WITHOUT_WAKE, Addressing, Command, CommandRouter, normalize
+from core.llm import Assistant, LLMError
 from core.event_bus import Event, EventBus, Topic
 from storage.face_store import FaceStore
 from storage.local_db import AuditLog
@@ -67,7 +68,8 @@ class Orchestrator:
     def __init__(self, bus: EventBus, matcher: VectorIdentityMatcher, store: FaceStore, audit: AuditLog,
                  speaker: Optional[Speaker] = None, router: Optional[CommandRouter] = None,
                  status_fn: Optional[Callable[[], str]] = None, on_reply: Optional[Callable[[str], None]] = None,
-                 follow_up_seconds: float = 10.0, require_liveness: bool = False, verified_seconds: float = 60.0):
+                 follow_up_seconds: float = 10.0, require_liveness: bool = False, verified_seconds: float = 60.0,
+                 assistant: Optional[Assistant] = None):
         self.bus, self.matcher, self.store, self.audit = bus, matcher, store, audit
         self.speaker = speaker or NullSpeaker()
         self.router = router or CommandRouter()
@@ -79,6 +81,8 @@ class Orchestrator:
         self._follow_until = 0.0  # after we speak, safe commands need no wake word until then
         self._talk_until = 0.0  # push-to-talk: the next thing said is for us
         self._safe_intents = set(SAFE_WITHOUT_WAKE)
+        self.assistant = assistant  # optional local chat model for open questions
+        self._chat_until = 0.0  # while a conversation with the assistant is going, no wake word is needed
         self.require_liveness = require_liveness  # sensitive actions need a recent "verify me"
         self.verified_seconds = verified_seconds
         self._verified: Dict[str, float] = {}  # name -> when the verification expires
@@ -172,7 +176,12 @@ class Orchestrator:
         """The command this speech should run, or None if it is not for us."""
         mode = self._addressing(language)
         cmd = self.router.parse(text, mode)
-        if cmd is not None and mode is Addressing.FOLLOW_UP and not cmd.woke and cmd.intent not in self._safe_intents:
+        if cmd is None and mode is Addressing.FOLLOW_UP and self.assistant and time.monotonic() < self._chat_until:
+            words = normalize(text).split()
+            if len(words) >= 2:  # mid-conversation: a follow-up question needs no wake word
+                cmd = Command("unknown", " ".join(words), woke=False)
+        if (cmd is not None and mode is Addressing.FOLLOW_UP and not cmd.woke and cmd.intent not in self._safe_intents
+                and not (cmd.intent == "unknown" and self.assistant and time.monotonic() < self._chat_until)):
             log.info("ignored %r: %s needs the wake word", text, cmd.intent)
             return None
         return cmd
@@ -301,9 +310,25 @@ class Orchestrator:
 
     # ---- intent handlers -------------------------------------------------
     async def _h_attention(self, c: Command) -> str:
-        return "Yes?"
+        return "I'm listening."
+
+    def _end_chat(self) -> None:
+        self._chat_until = 0.0
+        if self.assistant is not None:
+            self.assistant.forget()
 
     async def _h_unknown(self, c: Command) -> str:
+        if self.assistant is not None:
+            if END_CHAT.search(c.text):  # "thanks, that's all" ends the conversation politely
+                self._end_chat()
+                return "Anytime."
+            try:
+                answer = await self.assistant.ask(c.text)
+            except LLMError as exc:
+                log.warning("assistant unavailable: %s", exc)
+                return "I can't reach my thinking model right now. I can still do the built-in commands; say help."
+            self._chat_until = time.monotonic() + max(self.follow_up_seconds, 8.0)
+            return answer
         return f"Sorry, I didn't understand. Say '{self.router.wake_name}, help' to hear what I can do."
 
     async def _h_help(self, c: Command) -> str:
@@ -311,6 +336,7 @@ class Orchestrator:
                 "recent activity, who do you know. Or: enroll me as, then your name; verify me; forget me; goodbye.")
 
     async def _h_thanks(self, c: Command) -> str:
+        self._end_chat()
         return "You're welcome."
 
     async def _h_time(self, c: Command) -> str:
