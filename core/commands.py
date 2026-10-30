@@ -1,18 +1,38 @@
 """Spoken-command understanding: wake word + rule-based intent matching.
 
 Whisper output is messy ("Hey, Aether!  Who's at the camera?"), so text is normalized first.
-The wake word is matched fuzzily because Whisper often hears "ether" or "either".
+The wake word is matched fuzzily because Whisper often hears "ether" or "either"; it can be any
+word or short phrase (a common word like "computer" is far easier for a speech model than "Aether").
 Intents are checked in order and the first match wins, so put specific ones before general ones.
+
+How a transcript is read depends on who is assumed to be talking to us (``Addressing``):
+  WAKE       normal listening: the wake word is required.
+  FOLLOW_UP  just after we spoke: no wake word needed, but chatter we cannot map to a command is
+             ignored silently, so background conversation does not get answered.
+  DIRECT     typed text or push-to-talk: someone deliberately addressed us; no wake word needed.
 """
 from __future__ import annotations
 
 import difflib
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Pattern, Tuple
+from enum import Enum
+from typing import Dict, List, Optional, Pattern, Sequence, Tuple
 
 WAKE_WORD = "aether"
 _FILLERS = {"hey", "hi", "hello", "ok", "okay", "yo", "please"}
+
+
+class Addressing(str, Enum):
+    WAKE = "wake"
+    FOLLOW_UP = "follow_up"
+    DIRECT = "direct"
+
+
+# Harmless, read-only intents that may run without the wake word in a follow-up window. Anything that
+# changes data (enroll, forget), stops the system, or reveals names or activity needs the wake word,
+# so a "goodbye" said to someone else on the phone cannot shut the system down.
+SAFE_WITHOUT_WAKE = frozenset({"time", "date", "status", "help", "thanks", "who_here", "who_am_i"})
 
 
 @dataclass(frozen=True)
@@ -20,6 +40,7 @@ class Command:
     intent: str
     text: str  # normalized text after the wake word
     args: Dict[str, str] = field(default_factory=dict)
+    woke: bool = True  # was the wake word actually said?
 
 
 def normalize(text: str) -> str:
@@ -67,32 +88,55 @@ def extract_name(text: str) -> Optional[str]:
     return "_".join(w.capitalize() for w in words) or None
 
 
+def match_wake(tokens: Sequence[str], wake_words: Sequence[str]) -> int:
+    """How many leading tokens form a wake word (0 if none). Wake words may have several words."""
+    for wake in wake_words:
+        n = len(wake.split())
+        if len(tokens) >= n and is_wake_word(" ".join(tokens[:n]), wake):
+            return n
+    return 0
+
+
 class CommandRouter:
-    def __init__(self, require_wake_word: bool = True) -> None:
+    def __init__(self, require_wake_word: bool = True, wake_words: Sequence[str] = (WAKE_WORD,)) -> None:
         self.require_wake_word = require_wake_word
+        self.wake_words = tuple(w for w in (normalize(x) for x in wake_words) if w) or (WAKE_WORD,)
         self._intents: List[Tuple[str, List[Pattern]]] = [
             (name, [re.compile(p) for p in pats]) for name, pats in _BUILTIN]
+
+    @property
+    def wake_name(self) -> str:
+        """The wake word as shown to people, e.g. 'Aether' or 'Computer'."""
+        return self.wake_words[0].title()
 
     def add_intent(self, name: str, patterns: List[str], first: bool = True) -> None:
         """Register a custom intent, e.g. ('lock_door', [r'\\block\\b.*\\bdoor\\b'])."""
         entry = (name, [re.compile(p) for p in patterns])
         self._intents.insert(0, entry) if first else self._intents.append(entry)
 
-    def parse(self, transcript: str) -> Optional[Command]:
-        """None = not addressed to us (no wake word). Otherwise a Command; intent 'unknown' if unclear."""
+    def parse(self, transcript: str, mode: Addressing = Addressing.WAKE) -> Optional[Command]:
+        """None = not for us. Otherwise a Command (intent 'unknown' when we were addressed but could not tell what for)."""
+        if not self.require_wake_word:
+            mode = Addressing.DIRECT
         tokens = normalize(transcript).split()
-        while tokens and tokens[0] in _FILLERS:
-            tokens.pop(0)
-        woke = bool(tokens) and is_wake_word(tokens[0])
-        if woke:
-            tokens.pop(0)
-        elif self.require_wake_word:
+        n = match_wake(tokens, self.wake_words)
+        if n:
+            rest, woke = tokens[n:], True
+        else:  # "hey computer": the filler may be part of a multi-word wake word, so try both ways
+            stripped = list(tokens)
+            while stripped and stripped[0] in _FILLERS:
+                stripped.pop(0)
+            n = match_wake(stripped, self.wake_words)
+            rest, woke = (stripped[n:], True) if n else (stripped, False)
+        if not woke and mode is Addressing.WAKE:
             return None
-        text = " ".join(tokens)
+        text = " ".join(rest)
         if not text:
-            return Command("attention", text)
+            return Command("attention", text) if woke else None
         for name, patterns in self._intents:
             if any(p.search(text) for p in patterns):
                 args = {"name": n} if name == "enroll" and (n := extract_name(text)) else {}
-                return Command(name, text, args)
-        return Command("unknown", text)
+                return Command(name, text, args, woke)
+        if not woke and mode is Addressing.FOLLOW_UP:
+            return None  # background chatter, not a command
+        return Command("unknown", text, woke=woke)

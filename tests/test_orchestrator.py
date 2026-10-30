@@ -318,3 +318,128 @@ async def test_closing_cancels_an_enrollment_in_progress(rig):
     rig.orch.close()
     await asyncio.sleep(0.01)
     assert rig.orch.enrollment_progress is None and task.cancelled()
+
+
+# ---------------------------------------------------------------------------- wake word follow-ups
+async def test_after_a_reply_safe_commands_need_no_wake_word(rig):
+    await rig.hear("what time is it")
+    assert rig.replies == []  # no conversation yet: ignored
+    await rig.hear("Aether, what time is it")
+    await rig.hear("what's the date")  # a follow-up, like talking to a person
+    assert rig.replies[-1].startswith("Today is") and len(rig.replies) == 2
+
+
+async def test_the_follow_up_window_closes(rig, monkeypatch):
+    rig.orch.follow_up_seconds = 0.05
+    await rig.hear("Aether, what time is it")
+    await asyncio.sleep(0.1)
+    await rig.hear("what's the date")
+    assert len(rig.replies) == 1
+
+
+async def test_a_greeting_opens_the_follow_up_window(rig):
+    rig.bus.publish(Topic.FACE_RECOGNIZED, Recognition("Alice", 0.8, 1, 0.0))
+    await asyncio.sleep(0.03)
+    assert rig.orch.attention()[0] == "follow_up"
+    await rig.hear("what time is it")
+    assert rig.replies[-1].startswith("It's ")
+
+
+async def test_background_chatter_in_the_window_is_ignored(rig):
+    await rig.hear("Aether, what time is it")
+    n = len(rig.replies)
+    for chatter in ("good morning everyone", "did you see the match yesterday", "okay see you tomorrow"):
+        await rig.hear(chatter)
+    assert len(rig.replies) == n  # no "Sorry, I didn't understand" for talk that was not meant for us
+
+
+async def test_dangerous_commands_still_need_the_wake_word(rig):
+    enrolled(rig, "Alice", ALICE)
+    await rig.see("Alice")
+    await rig.hear("Aether, what time is it")  # opens the window
+    n = len(rig.replies)
+    for said in ("goodbye", "forget me", "enroll me as Mallory", "who do you know", "recent activity"):
+        await rig.hear(said)
+    assert len(rig.replies) == n and not rig.orch.shutdown.is_set()
+    assert list(rig.store.load_all()) == ["Alice"] and rig.orch._enroll is None
+    await rig.hear("Aether, goodbye")  # with the wake word it works
+    assert rig.orch.shutdown.is_set()
+
+
+async def test_custom_commands_need_the_wake_word_unless_declared_safe(rig):
+    async def lock(cmd):
+        return "Locked."
+
+    async def lamp(cmd):
+        return "Lamp state: on."
+
+    rig.orch.register_handler("lock_door", [r"\block\b.*\bdoor\b"], lock)
+    rig.orch.register_handler("lamp", [r"\blamp\b"], lamp, safe_without_wake=True)
+    await rig.hear("Aether, what time is it")
+    await rig.hear("lock the front door")
+    assert "Locked." not in rig.replies
+    await rig.hear("is the lamp on")
+    assert rig.replies[-1] == "Lamp state: on."
+    await rig.hear("Aether, lock the front door")
+    assert rig.replies[-1] == "Locked."
+
+
+async def test_push_to_talk_needs_no_wake_word_and_is_used_up_by_one_command(rig):
+    assert rig.orch.attention() is None
+    rig.orch.listen_now(5.0)
+    kind, left = rig.orch.attention()
+    assert kind == "talk" and 4.0 < left <= 5.0
+    await rig.hear("what time is it")
+    assert rig.replies[-1].startswith("It's ")
+    assert rig.orch._talk_until == 0.0  # used up
+    assert rig.orch.attention()[0] == "follow_up"  # the conversation continues
+
+
+async def test_push_to_talk_is_a_deliberate_act_so_it_answers_unclear_speech(rig):
+    rig.orch.listen_now()
+    await rig.hear("blah blah")
+    assert "didn't understand" in rig.replies[-1]
+
+
+async def test_push_to_talk_allows_sensitive_commands_like_the_keyboard_does(rig):
+    rig.orch.listen_now()
+    await rig.hear("goodbye")
+    assert rig.orch.shutdown.is_set()
+
+
+async def test_push_to_talk_expires(rig):
+    rig.orch.listen_now(0.05)
+    await asyncio.sleep(0.1)
+    await rig.hear("what time is it")
+    assert rig.replies == [] and rig.orch.attention() is None
+
+
+async def test_the_assistant_never_obeys_itself_even_in_a_follow_up_window(rig):
+    await rig.hear("Aether, what time is it")
+    rig.speaker.speaking = True  # the next "speech" is our own voice coming back through the microphone
+    await rig.hear("what's the date")
+    assert len(rig.replies) == 1
+
+
+async def test_typed_commands_need_no_wake_word_and_ignore_the_listening_switch(rig):
+    rig.orch.listening = False
+    rig.bus.publish(Topic.SPEECH_TRANSCRIBED, Transcript("who am I", "typed", 0, 0, 0.0))
+    await asyncio.sleep(0.03)
+    assert rig.replies  # answered
+    await rig.hear("Aether, what time is it")
+    assert len(rig.replies) == 1  # spoken input is paused
+
+
+async def test_would_handle_matches_what_the_orchestrator_will_do(rig):
+    assert not rig.orch.would_handle("what time is it") and rig.orch.would_handle("Aether what time is it")
+    assert rig.orch.would_handle("anything at all", "typed")
+    rig.orch.listen_now()
+    assert rig.orch.would_handle("what time is it")
+
+
+async def test_help_and_prompts_use_the_configured_wake_word(rig):
+    rig.orch.router.wake_words = ("computer",)
+    await rig.hear("Computer, sing")
+    assert "'Computer, help'" in rig.replies[-1]
+    await rig.hear("Computer, enroll me")
+    assert "Computer, enroll me as" in rig.replies[-1]

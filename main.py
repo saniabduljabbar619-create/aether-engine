@@ -49,7 +49,7 @@ async def run_classic(args: argparse.Namespace) -> None:
         engine.bus.subscribe(Topic.FACES_UPDATED, show, max_queue=1)
         window = cv2
 
-    print("Ready. Say 'Aether, help'. Ctrl+C to quit.")
+    print(f"Ready. Say '{engine.orch.router.wake_name}, help'. Ctrl+C to quit.")
     try:
         await engine.orch.shutdown.wait()
         await asyncio.sleep(1.5)  # let the goodbye be spoken

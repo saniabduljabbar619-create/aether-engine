@@ -120,6 +120,30 @@ Design notes: the asyncio engine runs on its own thread and the window only talk
 skips frames instead of lagging. Enrolling from the window is allowed without a recognized person in
 view, because whoever sits at the keyboard is the administrator; the voice rules still apply to voice.
 
+## The wake word
+
+Speech models struggle with rare words, so Aether does not depend on hearing its name every time:
+
+- **Follow-up window.** After Aether speaks (a greeting or an answer) the next 10 seconds accept
+  harmless commands without the wake word, like talking to a person. The window shows "Follow-up (9s)".
+  Talk that does not map to a command is ignored silently.
+- **Push to talk.** The **Talk (F9)** button: the next thing you say is a command, no wake word needed.
+- **Safety.** Without the wake word only read-only commands work (time, date, status, help, who is in
+  view, who am I). Shutdown, forget, enroll, "who do you know", "recent activity" and your own commands
+  still need it, so a "goodbye" said to someone else cannot shut the system down. Custom commands
+  default to needing the wake word (`safe_without_wake=True` to opt out for read-only ones).
+- **Choose a word the recognizer hears well:** `AETHER_WAKE_WORDS=computer` (several allowed, e.g.
+  `aether,computer`; multi-word like `hey jarvis` works). The speech hint follows the wake word.
+- **Measure instead of guessing:** `python -m examples.wake_test` has you say the phrase 10 times and
+  reports how often the wake word and the whole command were understood; try `--model small` or
+  `--wake computer` to compare.
+
+![talk](docs/screenshots/gui_talk_window.png)
+![conversation](docs/screenshots/gui_wake_conversation.png)
+*Real face models with scripted speech-to-text results reproducing a real log: the garbled "The police and
+the camera are at the camera." and chatter are ignored, a follow-up works without the wake word, a bare
+"goodbye" does not shut down, push-to-talk works, and "Aether, goodbye" does.*
+
 ## Development and tests
 
 ```bash
@@ -191,7 +215,7 @@ python main.py                 # classic OpenCV window
 python main.py --no-voice      # camera only        (also: --no-camera, --no-window, --no-tts)
 ```
 
-Say the wake word first, so ordinary conversation is ignored: **"Aether, ..."**
+Say the wake word first, so ordinary conversation is ignored: **"Aether, ..."** (see *The wake word* below for follow-ups and push-to-talk)
 
 | Say | What happens |
 |-----|--------------|

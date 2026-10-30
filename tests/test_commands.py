@@ -1,6 +1,6 @@
 import pytest
 
-from core.commands import CommandRouter, extract_name, is_wake_word, normalize
+from core.commands import SAFE_WITHOUT_WAKE, Addressing, CommandRouter, extract_name, is_wake_word, normalize
 
 
 def intent(text, router=None):
@@ -85,3 +85,52 @@ def test_custom_intent_takes_priority():
 def test_normalize():
     assert normalize("  Hey, Aether!!  What's the TIME?  ") == "hey aether what's the time"
     assert normalize("it’s") == "it's"
+
+
+def test_follow_up_mode_needs_no_wake_word_but_ignores_chatter():
+    r = CommandRouter()
+    assert r.parse("what time is it", Addressing.FOLLOW_UP).intent == "time"
+    assert r.parse("what time is it", Addressing.FOLLOW_UP).woke is False
+    assert r.parse("good morning everyone", Addressing.FOLLOW_UP) is None  # not a command: stay quiet
+    assert r.parse("Aether, good morning", Addressing.FOLLOW_UP).intent == "unknown"  # but if addressed, say so
+    assert r.parse("what time is it", Addressing.WAKE) is None
+
+
+def test_direct_mode_for_typed_text_and_push_to_talk():
+    r = CommandRouter()
+    assert r.parse("who am I", Addressing.DIRECT).intent == "who_am_i"
+    unclear = r.parse("sing me a song", Addressing.DIRECT)
+    assert unclear.intent == "unknown" and not unclear.woke  # deliberate, so we may answer "didn't understand"
+    assert r.parse("", Addressing.DIRECT) is None
+
+
+def test_command_remembers_whether_the_wake_word_was_said():
+    r = CommandRouter()
+    assert r.parse("Aether what time is it").woke is True
+    assert r.parse("what time is it", Addressing.FOLLOW_UP).woke is False
+
+
+def test_only_harmless_intents_are_safe_without_the_wake_word():
+    assert {"time", "date", "status", "help", "thanks", "who_here", "who_am_i"} == set(SAFE_WITHOUT_WAKE)
+    for risky in ("shutdown", "forget_me", "enroll", "who_known", "recent"):
+        assert risky not in SAFE_WITHOUT_WAKE
+
+
+@pytest.mark.parametrize("wake,said,expected", [
+    (["computer"], "Computer, what time is it", "time"),
+    (["computer"], "hey computer who am I", "who_am_i"),
+    (["computer"], "commuter what's the date", "date"),  # fuzzy: close enough for a speech model's slip
+    (["hey jarvis"], "hey jarvis what time is it", "time"),  # multi-word wake word
+    (["hey jarvis"], "Jarvis what time is it", None),  # needs the whole phrase
+    (["aether", "computer"], "Computer what time is it", "time"),  # several at once
+    (["aether", "computer"], "Aether what time is it", "time"),
+])
+def test_configurable_wake_words(wake, said, expected):
+    c = CommandRouter(wake_words=wake).parse(said)
+    assert (c.intent if c else None) == expected
+
+
+def test_wake_name_is_for_display():
+    assert CommandRouter().wake_name == "Aether"
+    assert CommandRouter(wake_words=["computer", "aether"]).wake_name == "Computer"
+    assert CommandRouter(wake_words=[" ", ""]).wake_name == "Aether"  # never empty

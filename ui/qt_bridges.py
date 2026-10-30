@@ -31,7 +31,6 @@ from core.event_bus import Event, Topic
 from vision.recognition import FacesUpdate
 
 T = TypeVar("T")
-TYPED_PREFIX = "Aether, "
 
 
 @dataclass(frozen=True)
@@ -123,9 +122,7 @@ class QtBridge(QObject):
 
     async def _on_heard(self, engine: Engine, e: Event) -> None:
         t: Transcript = e.payload
-        text = t.text[len(TYPED_PREFIX):] if t.language == TYPED else t.text
-        addressed = engine.orch.router.parse(t.text) is not None
-        self.heard.emit(text, addressed)
+        self.heard.emit(t.text, engine.orch.would_handle(t.text, t.language))
         self.voice_state.emit("listening")
 
 
@@ -185,10 +182,10 @@ class EngineController(QObject):
 
     # ---- actions (GUI thread -> engine thread) ---------------------------
     def send_text(self, text: str) -> None:
-        """Run a typed command as if it had been spoken after the wake word."""
+        """Run a typed command: someone at the keyboard is addressing us directly, so no wake word."""
         if self.engine is None or not text.strip():
             return
-        t = Transcript(TYPED_PREFIX + text.strip(), TYPED, 0.0, 0.0, time.monotonic())
+        t = Transcript(text.strip(), TYPED, 0.0, 0.0, time.monotonic())
         self.engine.bus.publish_threadsafe(Topic.SPEECH_TRANSCRIBED, t)
 
     def begin_enrollment(self, name: str) -> "Future[str]":
@@ -202,6 +199,11 @@ class EngineController(QObject):
             return self.engine.orch.forget_person(name)
 
         return self._thread.submit(go())
+
+    def listen_now(self) -> None:
+        """Push-to-talk: the next thing said is a command, no wake word needed."""
+        if self.engine and self.engine.orch:
+            self.engine.orch.listen_now()
 
     def set_listening(self, on: bool) -> None:
         if self.engine:
@@ -225,6 +227,15 @@ class EngineController(QObject):
         return self.engine.orch.enrollment_progress if self.engine and self.engine.orch else None
 
     @property
+    def attention(self):
+        """('talk' | 'follow_up', seconds left) while Aether listens without a wake word, else None."""
+        return self.engine.orch.attention() if self.engine and self.engine.orch else None
+
+    @property
+    def wake_name(self) -> str:
+        return self.engine.orch.router.wake_name if self.engine and self.engine.orch else "Aether"
+
+    @property
     def enrollment_hint(self) -> str:
         return self.engine.orch.enrollment_hint if self.engine and self.engine.orch else ""
 
@@ -233,9 +244,9 @@ class EngineController(QObject):
 
     def enrolled(self) -> dict:
         """{name: number of samples}"""
-        if self.engine is None:
+        if self.engine is None or self._stopped:
             return {}
         return {name: len(v) for name, v in self.engine.store.load_all().items()}
 
     def recent_activity(self, n: int = 100) -> List[Tuple[str, str, str]]:
-        return self.engine.audit.recent(n) if self.engine else []
+        return self.engine.audit.recent(n) if self.engine and not self._stopped else []
