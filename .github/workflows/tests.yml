@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install "ruff>=0.4"
@@ -36,21 +36,20 @@ jobs:
     name: tests (python ${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # Windows is the platform the app is mainly used on, but its runners are untested for the
-    # timing-sensitive tests, so for now a Windows failure is reported without blocking.
-    continue-on-error: ${{ matrix.experimental }}
+    # Windows is the platform the app is mainly used on, and it has caught two real Windows-only bugs
+    # (clock-based file names, slow refused connections), so a Windows failure blocks like any other.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.10", experimental: false } # the declared minimum
-          - { os: ubuntu-latest, python: "3.12", experimental: false }
-          - { os: ubuntu-latest, python: "3.13", experimental: false }
-          - { os: windows-latest, python: "3.12", experimental: true }
+          - { os: ubuntu-latest, python: "3.10" } # the declared minimum
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.12" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -72,7 +71,7 @@ jobs:
 
       # The two face models (about 39 MB). The download is checksum-verified by the code itself.
       - name: Cache face models
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: models
           key: models-${{ hashFiles('vision/detector.py') }} # the file that pins their URLs and hashes
