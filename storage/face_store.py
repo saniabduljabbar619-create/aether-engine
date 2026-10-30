@@ -1,16 +1,24 @@
-"""On-disk store of reference face embeddings: <root>/<name>/<timestamp>.npy.
+"""On-disk store of reference face embeddings: <root>/<name>/<timestamp>-<counter>-<random>.npy.
 
 Embeddings are biometric data. They stay on this machine and *.npy is git-ignored.
+
+File names must never depend on the clock alone: Windows clocks (Python <= 3.12) tick about every 15 ms,
+so samples saved in a burst would share a name and silently overwrite each other. The counter keeps
+the order within one tick, the random suffix covers separate processes, and files are opened
+exclusively, so an existing sample can never be overwritten.
 """
 from __future__ import annotations
 
+import itertools
 import re
+import secrets
 import time
 from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
 
+_counter = itertools.count()  # next() is atomic in CPython, so threads cannot draw the same number
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
@@ -27,9 +35,15 @@ class FaceStore:
             raise ValueError("name must be letters, digits, '-' or '_' (max 64 chars)")
         folder = self.root / name
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{time.time_ns()}.npy"
-        np.save(path, np.asarray(embedding, dtype=np.float32).reshape(-1))
-        return path
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        while True:
+            path = folder / f"{time.time_ns()}-{next(_counter):06d}-{secrets.token_hex(3)}.npy"
+            try:
+                with open(path, "xb") as f:  # "x": fail rather than overwrite an existing sample
+                    np.save(f, vector)
+                return path
+            except FileExistsError:
+                continue
 
     def load_all(self) -> Dict[str, List[np.ndarray]]:
         db: Dict[str, List[np.ndarray]] = {}
