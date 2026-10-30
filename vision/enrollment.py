@@ -18,6 +18,8 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
+from vision.pose import estimate_yaw
+
 CENTER, USER_RIGHT, USER_LEFT = "center", "user_right", "user_left"
 POSES = (CENTER, USER_RIGHT, USER_LEFT)
 YAW_THRESHOLD = 0.12  # nose offset / eye distance beyond which the head counts as turned
@@ -29,24 +31,6 @@ PROMPTS = {
 }
 DIM_WARNING = "It's dim, so more light will help."
 DIM_BELOW = 60  # mean pixel value of the frame; a warning only, never a rejection
-
-
-def estimate_yaw(landmarks: np.ndarray) -> Optional[float]:
-    """Head turn from YuNet's 5 landmarks (right eye, left eye, nose, mouth right, mouth left).
-
-    0 = frontal. The nose is measured against BOTH the eye line and the mouth line, and the two
-    readings are averaged. Measured on the same face under different brightness and scale, that
-    halves the noise (std 0.018 instead of 0.034) and removes a frontal bias that the eyes-only
-    reading had. The subject's right eye is on the image-left; when the person turns toward THEIR
-    right the nose moves toward the image-left, so yaw becomes negative. None if the eyes coincide.
-    """
-    right_eye, left_eye, nose, mouth_right, mouth_left = landmarks[:5]
-    eye_dist = float(np.hypot(*(left_eye - right_eye)))
-    if eye_dist < 1e-3:
-        return None
-    from_eyes = nose[0] - (right_eye[0] + left_eye[0]) / 2
-    from_mouth = nose[0] - (mouth_right[0] + mouth_left[0]) / 2
-    return float((from_eyes + from_mouth) / 2 / eye_dist)
 
 
 def pose_of(yaw: float) -> str:

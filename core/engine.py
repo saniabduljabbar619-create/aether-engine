@@ -67,6 +67,8 @@ class Engine:
         self.orch = Orchestrator(self.bus, self.matcher, self.store, self.audit, self.speaker,
                                  router=CommandRouter(wake_words=self.cfg.wake_word_list),
                                  follow_up_seconds=self.cfg.follow_up_seconds,
+                                 require_liveness=self.cfg.require_liveness,
+                                 verified_seconds=self.cfg.verified_seconds,
                                  status_fn=self._status_text, on_reply=self._on_reply)
         self.orch.start()
 

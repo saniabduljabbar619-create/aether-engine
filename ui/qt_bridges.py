@@ -200,6 +200,12 @@ class EngineController(QObject):
 
         return self._thread.submit(go())
 
+    def begin_verification(self) -> "Future[str]":
+        async def go() -> str:
+            return self.engine.orch.begin_verification()
+
+        return self._thread.submit(go())
+
     def listen_now(self) -> None:
         """Push-to-talk: the next thing said is a command, no wake word needed."""
         if self.engine and self.engine.orch:
@@ -234,6 +240,14 @@ class EngineController(QObject):
     @property
     def wake_name(self) -> str:
         return self.engine.orch.router.wake_name if self.engine and self.engine.orch else "Aether"
+
+    @property
+    def liveness_hint(self) -> str:
+        return self.engine.orch.liveness_hint if self.engine and self.engine.orch else ""
+
+    @property
+    def verified_names(self) -> List[str]:
+        return self.engine.orch.verified_names() if self.engine and self.engine.orch else []
 
     @property
     def enrollment_hint(self) -> str:

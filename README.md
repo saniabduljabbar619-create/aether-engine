@@ -188,6 +188,25 @@ estimate averages the nose position against the eye line and the mouth line, whi
 measurements. The thresholds (turn 0.12, duplicate 0.96, consistency 0.45) are checked with synthetic
 data and one real photo, not yet with many real people.
 
+## Liveness check ("verify me")
+
+Face recognition alone can be fooled by a photo. "Verify me" asks you to turn your head to a **randomly chosen**
+side and checks *how the face moves*: a real nose sticks out about 3 cm, so turning slides it across the eyes
+and mouth; a flat photo (even one held at an angle or turned on a phone) moves rigidly and the nose barely shifts.
+
+    python -m examples.liveness_demo --selftest   # no camera: simulated head vs simulated photo
+    python -m examples.liveness_demo              # live, on your webcam
+
+Say "Aether, verify me" or click **Verify me**. Only one recognized person may be in view, and the face that turns
+must stay the same person throughout. A pass lasts `AETHER_VERIFIED_SECONDS` (60 s).
+
+By default it is informational. Set `AETHER_REQUIRE_LIVENESS=true` and enrolling an extra person, forgetting
+someone, and any custom command registered with `requires_verified=True` (say, unlocking a door) need a recent pass.
+
+What it does **not** stop: a *video* of the person turning the requested way, a 3D mask, or someone physically
+present who is already recognized. It raises the bar from "any photo" to "a deliberate attack"; it is not a
+bank-grade check. Please test it on your own camera with a real turn and a phone photo and share the numbers.
+
 ## Tuning for your machine
 
 Settings come from environment variables or a `.env` file in the project folder (see `.env.example`).

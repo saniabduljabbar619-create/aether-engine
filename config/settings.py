@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Say this first. Several words can be given, comma-separated. A common word ("computer") is far
     # easier for a speech model to hear than a rare one ("Aether").
     wake_words: str = "aether"
+    # When on, enrolling, forgetting and "requires_verified" custom commands need a recent "verify me"
+    # (a head-turn challenge that a photo cannot pass). Try "verify me" yourself before switching it on.
+    require_liveness: bool = False
+    verified_seconds: float = Field(60.0, gt=0)  # how long a passed check stays valid
     follow_up_seconds: float = Field(10.0, ge=0)  # after Aether speaks, safe commands need no wake word for this long
     whisper_threads: int = Field(0, ge=0)  # 0 = half of the CPU threads, so the camera stays smooth
     detect_max_fps: float = Field(10.0, gt=0)  # face detection rate cap; frees CPU for speech

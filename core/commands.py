@@ -61,6 +61,9 @@ def is_wake_word(token: str, wake: str = WAKE_WORD, threshold: float = 0.75) -> 
 # (intent, patterns). Order matters.
 _BUILTIN: List[Tuple[str, List[str]]] = [
     ("shutdown", [r"\b(shut ?down|good ?bye|exit|quit|stop listening|turn off)\b"]),
+    ("verify", [r"\b(verify|authenticate)\b.*\b(me|my identity|that i'?m|i am)\b", r"\bam i (real|alive|a real person)\b",
+                r"\bliveness\b", r"\b(prove|confirm|check)\b.*\b(i'?m|i am|it'?s|that it'?s)\b.*\b(real|really|alive|me)\b",
+                r"\bit'?s really me\b"]),
     ("forget_me", [r"\b(forget|delete|remove)\b.*\b(me|my face|my data)\b"]),
     ("enroll", [r"\b(enrol|enroll|register|remember|learn)\b.*\b(me|my face)\b"]),
     ("who_am_i", [r"\bwho am i\b", r"\bdo you (know|recogni[sz]e) me\b"]),

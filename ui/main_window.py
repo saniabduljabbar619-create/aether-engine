@@ -205,9 +205,13 @@ class MainWindow(QMainWindow):
         self.btn_talk.clicked.connect(self._talk)
         self.btn_talk.setEnabled(False)
         QShortcut(QKeySequence("F9"), self, activated=self._talk)
+        self.btn_verify = QPushButton("Verify me")
+        self.btn_verify.setToolTip("Prove you are really here (not a photo) by turning your head when asked")
+        self.btn_verify.clicked.connect(self._verify)
         self.chk_mute = QCheckBox("Mute voice replies")
         self.chk_mute.toggled.connect(self.ctl.set_muted)
         toggles.addWidget(self.btn_talk)
+        toggles.addWidget(self.btn_verify)
         toggles.addWidget(self.chk_listen)
         toggles.addWidget(self.chk_mute)
         toggles.addStretch()
@@ -345,10 +349,16 @@ class MainWindow(QMainWindow):
             self.lbl_voice.setText(self._voice_text)
             self.lbl_voice.setStyleSheet("")
         self.mic_bar.setValue(int(max(0.0, min(100.0, (self.ctl.mic_level_db + 60) * 100 / 60))))
+        live = self.ctl.liveness_hint
+        verified = self.ctl.verified_names
+        self.btn_verify.setEnabled(not live)
         prog = self.ctl.enrollment_progress
         busy = prog is not None
         self.enroll_bar.setVisible(busy)
-        self.enroll_lbl.setVisible(busy)
+        self.enroll_lbl.setVisible(busy or bool(live))
+        if live and not busy:
+            self.enroll_lbl.setText(f"Verifying: {live}")
+        self.btn_verify.setText("Verified \u2713" if verified else "Verify me")
         self.btn_enroll.setEnabled(not busy)
         self.btn_add.setEnabled(not busy and self._selected_person() is not None)
         if busy:
@@ -356,6 +366,10 @@ class MainWindow(QMainWindow):
             self.enroll_bar.setRange(0, need)
             self.enroll_bar.setValue(got)
             self.enroll_lbl.setText(f"Enrolling {name.replace('_', ' ')} ({got}/{need}): {self.ctl.enrollment_hint}")
+
+    def _verify(self) -> None:
+        fut = self.ctl.begin_verification()
+        fut.add_done_callback(lambda f: self.ctl.bridge.error.emit(str(f.exception())) if f.exception() else None)
 
     def _send(self) -> None:
         text = self.input.text().strip()
