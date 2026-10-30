@@ -277,3 +277,17 @@ def test_late_refreshes_after_closing_do_not_touch_the_closed_database(qapp, tmp
     win.refresh_activity()  # the late timers
     win.refresh_people()
     assert ctl.recent_activity() == [] and ctl.enrolled() == {}
+
+
+def test_verify_button_explains_itself_when_nobody_is_recognized(qapp, tmp_path):
+    win, ctl, _ = _start(qapp, tmp_path)
+    try:
+        assert wait_for(qapp, lambda: "Ready." in win.chat.toPlainText())
+        assert win.btn_verify.isEnabled() and win.btn_verify.text() == "Verify me"
+        errors = []
+        ctl.bridge.error.connect(errors.append)
+        win._verify()
+        assert wait_for(qapp, lambda: any("recognize" in e for e in errors))
+        assert ctl.liveness_hint == "" and ctl.verified_names == []
+    finally:
+        win.close()
