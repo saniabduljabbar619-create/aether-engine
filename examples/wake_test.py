@@ -11,6 +11,7 @@ models and wake words with real numbers instead of guessing.
 """
 import argparse
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional
 
@@ -28,6 +29,16 @@ class Trial:
     woke: bool  # wake word recognized
     intent: Optional[str]  # command understood
     seconds: float  # transcription time
+
+
+class OnWorker:
+    """Runs ``transcribe`` on the same worker thread that loaded the model."""
+
+    def __init__(self, pool: ThreadPoolExecutor, engine) -> None:
+        self._pool, self._engine = pool, engine
+
+    def transcribe(self, audio):
+        return self._pool.submit(self._engine.transcribe, audio).result()
 
 
 def evaluate(clips: Iterable[Optional[np.ndarray]], engine, router: CommandRouter) -> List[Trial]:
@@ -95,8 +106,12 @@ def main() -> None:
     router = CommandRouter(wake_words=[a.wake])
     prompt = f"Hey {router.wake_name}, who is at the camera? {router.wake_name}, what time is it?"
     print(f"Loading Whisper '{a.model}' (language {cfg.whisper_language or 'auto'})...")
-    engine = FasterWhisperEngine(a.model, cfg.whisper_device, language=cfg.whisper_language,
-                                 prompt=prompt, threads=cfg.whisper_threads)
+    # Like the real app, load and run Whisper on a worker thread: loading it on the main thread made
+    # the speech library crash natively (access violation) on at least one Windows laptop.
+    worker = ThreadPoolExecutor(max_workers=1)
+    engine = OnWorker(worker, worker.submit(
+        FasterWhisperEngine, a.model, cfg.whisper_device, language=cfg.whisper_language,
+        prompt=prompt, threads=cfg.whisper_threads).result())
     expected = router.parse(f"{a.wake} {a.phrase}")
     if expected is None or expected.intent == "unknown":
         raise SystemExit(f"'{a.phrase}' is not a command I know; try 'what time is it' or 'who am I'.")

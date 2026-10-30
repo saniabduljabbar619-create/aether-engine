@@ -47,3 +47,18 @@ def test_a_different_wake_word_is_used_end_to_end():
     r = CommandRouter(wake_words=["computer"])
     trials = evaluate([CLIP, CLIP], Scripted(["Computer, what time is it", "Aether what time is it"]), r)
     assert [t.woke for t in trials] == [True, False]
+
+
+def test_transcription_runs_on_the_worker_that_loaded_the_model():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from examples.wake_test import OnWorker
+
+    class Engine:
+        def transcribe(self, audio):
+            return threading.current_thread().name, "en"
+
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
+    name, _ = OnWorker(pool, Engine()).transcribe(None)
+    assert name.startswith("whisper") and name != threading.current_thread().name
