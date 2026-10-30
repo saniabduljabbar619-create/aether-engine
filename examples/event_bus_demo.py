@@ -7,7 +7,7 @@ import asyncio
 import threading
 import time
 
-from core.event_bus import WILDCARD, EventBus, Event, Topic
+from core.event_bus import EventBus, Event, Topic
 
 
 def camera_thread(bus: EventBus) -> None:

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from core.event_bus import EventBus, Topic
+from tests._optional import optional_module, skip_unless
 from vision.capture import Frame
 from vision.detector import DetectorService, FaceDetection, FaceEvent
 
@@ -112,15 +113,15 @@ async def test_analyzer_failure_does_not_kill_service(bus):
     assert len(got) == 1
 
 
-needs_models = pytest.mark.skipif(
-    not (MODELS / "yunet.onnx").exists() or not (MODELS / "sface.onnx").exists(),
-    reason="run `python -c 'from vision.detector import ensure_models; ensure_models()'` first",
+needs_models = skip_unless(
+    (MODELS / "yunet.onnx").exists() and (MODELS / "sface.onnx").exists(),
+    "run `python -c 'from vision.detector import ensure_models; ensure_models()'` first",
 )
 
 
 @needs_models
 def test_real_models_find_face_and_embed():
-    cv2 = pytest.importorskip("cv2")
+    cv2 = optional_module("cv2")
     from vision.detector import FaceAnalyzer
 
     img = cv2.imread(str(DATA / "astronaut.jpg"))
@@ -141,7 +142,7 @@ def test_real_models_find_face_and_embed():
 @needs_models
 def test_enroll_then_recognize_modified_photo(tmp_path):
     """End to end with real models: same person, different pixels, still matches."""
-    cv2 = pytest.importorskip("cv2")
+    cv2 = optional_module("cv2")
     from storage.face_store import FaceStore
     from vision.detector import FaceAnalyzer
     from vision.spatial_engine import VectorIdentityMatcher

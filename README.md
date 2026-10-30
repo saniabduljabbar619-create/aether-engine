@@ -1,5 +1,7 @@
 # Aether-Vision Engine
 
+[![tests](https://github.com/saniabduljabbar619-create/aether-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/saniabduljabbar619-create/aether-engine/actions/workflows/tests.yml)
+
 Async, event-driven multimodal AI system: face recognition (vectorized embedding
 matching + temporal stabilization) and local speech (VAD + faster-whisper),
 coordinated by an asyncio event bus, with a PySide6 desktop UI.
@@ -141,6 +143,23 @@ Speech models struggle with rare words, so Aether does not depend on hearing its
 *Real face models with scripted speech-to-text results reproducing a real log: the garbled "The police and
 the camera are at the camera." and chatter are ignored, a follow-up works without the wake word, a bare
 "goodbye" does not shut down, push-to-talk works, and "Aether, goodbye" does.*
+
+## Development and tests
+
+```bash
+pip install -e ".[dev,ci]"   # test tools + headless OpenCV and PySide6 (no Whisper or audio needed)
+python -m pytest             # about 180 tests, ~15 s
+ruff check .                 # lint: syntax errors, undefined names, unused imports
+```
+
+GitHub Actions (`.github/workflows/tests.yml`) runs lint and the tests on every pull request and push
+to `main`: Python 3.10 (the declared minimum), 3.12 and 3.13 on Linux, plus Windows as a non-blocking
+extra. The tests need no camera, microphone or Whisper model; the two small face models are downloaded
+and cached. In CI the flag `AETHER_REQUIRE_ALL=1` turns "optional piece missing" from a quiet skip into a
+failure, so a green check always means the whole suite ran (`tests/_optional.py`).
+
+To make the check mandatory: GitHub, Settings, Branches, add a rule for `main`, tick "Require status
+checks to pass" and select the `lint` and `tests (...)` checks.
 
 ## Enrollment quality
 

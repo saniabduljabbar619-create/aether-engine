@@ -7,13 +7,13 @@ from typing import Optional
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QPainter, QPen, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QGroupBox, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QProgressBar, QPushButton, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from storage.face_store import FaceStore
-from ui.qt_bridges import EngineController, FrameInfo
+from ui.qt_bridges import EngineController
 from vision.tracker import UNKNOWN
 
 BG, PANEL, BORDER = "#0f141a", "#171d26", "#263040"
