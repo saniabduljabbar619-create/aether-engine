@@ -19,13 +19,13 @@ import logging
 from collections import Counter
 import time
 from datetime import datetime
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from audio.stt_engine import TYPED, Transcript
 from audio.tts import NullSpeaker, Speaker
-from core.commands import Command, CommandRouter
+from core.commands import SAFE_WITHOUT_WAKE, Addressing, Command, CommandRouter
 from core.event_bus import Event, EventBus, Topic
 from storage.face_store import FaceStore
 from storage.local_db import AuditLog
@@ -43,6 +43,7 @@ ENROLL_TIMEOUT = 40.0
 ENROLL_COHESION_MIN = 0.45  # samples of one person agree well above this; two people mixed fall below
 DUPLICATE_CHECK_AT = 3  # after this many samples, check the face is not someone already enrolled
 HINT_EVERY = 3.0  # seconds between spoken enrollment hints
+TALK_SECONDS = 8.0  # how long push-to-talk listens for a command
 VIEW_FRESH = 1.5  # a FACES_UPDATED older than this no longer describes "who is here"
 
 Handler = Callable[[Command], Awaitable[str]]
@@ -55,7 +56,8 @@ def display(name: str) -> str:
 class Orchestrator:
     def __init__(self, bus: EventBus, matcher: VectorIdentityMatcher, store: FaceStore, audit: AuditLog,
                  speaker: Optional[Speaker] = None, router: Optional[CommandRouter] = None,
-                 status_fn: Optional[Callable[[], str]] = None, on_reply: Optional[Callable[[str], None]] = None):
+                 status_fn: Optional[Callable[[], str]] = None, on_reply: Optional[Callable[[str], None]] = None,
+                 follow_up_seconds: float = 10.0):
         self.bus, self.matcher, self.store, self.audit = bus, matcher, store, audit
         self.speaker = speaker or NullSpeaker()
         self.router = router or CommandRouter()
@@ -63,6 +65,10 @@ class Orchestrator:
         self.on_reply = on_reply or (lambda text: print(f"Aether: {text}"))
         self.shutdown = asyncio.Event()
         self.listening = True  # the UI can pause voice commands
+        self.follow_up_seconds = follow_up_seconds
+        self._follow_until = 0.0  # after we speak, safe commands need no wake word until then
+        self._talk_until = 0.0  # push-to-talk: the next thing said is for us
+        self._safe_intents = set(SAFE_WITHOUT_WAKE)
         self._view: Optional[FacesUpdate] = None
         self._view_at = 0.0
         self._enroll: Optional[EnrollmentSession] = None
@@ -82,10 +88,16 @@ class Orchestrator:
         """Stop background work (an enrollment in progress) before the bus shuts down."""
         self._end_enrollment()
 
-    def register_handler(self, intent: str, patterns: List[str], handler: Handler) -> None:
-        """Add a custom voice command, e.g. unlocking a door via your own hardware code."""
+    def register_handler(self, intent: str, patterns: List[str], handler: Handler,
+                         safe_without_wake: bool = False) -> None:
+        """Add a custom voice command, e.g. unlocking a door via your own hardware code.
+
+        It needs the wake word unless ``safe_without_wake`` is set, which only suits harmless
+        read-only commands: otherwise any chatter after a reply could trigger it."""
         self.router.add_intent(intent, patterns)
         self._handlers[intent] = handler
+        if safe_without_wake:
+            self._safe_intents.add(intent)
 
     def start(self) -> None:
         sub = self.bus.subscribe
@@ -113,14 +125,47 @@ class Orchestrator:
         else:
             self.audit.record("error", str(p))
 
+    # ---- who is being addressed ------------------------------------------
+    def listen_now(self, seconds: float = TALK_SECONDS) -> None:
+        """Push-to-talk: for a few seconds the next thing said is a command, wake word or not."""
+        self._talk_until = time.monotonic() + seconds
+
+    def attention(self) -> Optional[Tuple[str, float]]:
+        """('talk' | 'follow_up', seconds left) while we are listening without a wake word, else None."""
+        now = time.monotonic()
+        if now < self._talk_until:
+            return "talk", self._talk_until - now
+        if now < self._follow_until:
+            return "follow_up", self._follow_until - now
+        return None
+
+    def _addressing(self, language: str) -> Addressing:
+        now = time.monotonic()
+        if language == TYPED or now < self._talk_until:
+            return Addressing.DIRECT
+        return Addressing.FOLLOW_UP if now < self._follow_until else Addressing.WAKE
+
+    def _decide(self, text: str, language: str = "en") -> Optional[Command]:
+        """The command this speech should run, or None if it is not for us."""
+        mode = self._addressing(language)
+        cmd = self.router.parse(text, mode)
+        if cmd is not None and mode is Addressing.FOLLOW_UP and not cmd.woke and cmd.intent not in self._safe_intents:
+            log.info("ignored %r: %s needs the wake word", text, cmd.intent)
+            return None
+        return cmd
+
+    def would_handle(self, text: str, language: str = "en") -> bool:
+        """Whether this speech would currently be treated as a command (for showing it in the UI)."""
+        return self._decide(text, language) is not None
+
     async def _on_transcript(self, e: Event) -> None:
         t: Transcript = e.payload
         if t.language != TYPED and (not self.listening or self.speaker.was_speaking_at(t.started_at)):
-            log.info("ignored speech captured while speaking: %r", t.text)
             return
-        cmd = self.router.parse(t.text)
+        cmd = self._decide(t.text, t.language)
         if cmd is None:
             return  # not addressed to us
+        self._talk_until = 0.0  # push-to-talk is used up by one command
         log.info("heard %r -> %s", t.text, cmd.intent)
         try:
             reply = await self._handlers[cmd.intent](cmd)
@@ -133,6 +178,7 @@ class Orchestrator:
     def _reply(self, text: str) -> None:
         self.on_reply(text)
         self.speaker.say(text)
+        self._follow_until = time.monotonic() + self.follow_up_seconds  # a natural conversation continues
 
     # ---- who is in view --------------------------------------------------
     def _visible(self):
@@ -148,7 +194,7 @@ class Orchestrator:
         return "Yes?"
 
     async def _h_unknown(self, c: Command) -> str:
-        return "Sorry, I didn't understand. Say 'Aether, help' to hear what I can do."
+        return f"Sorry, I didn't understand. Say '{self.router.wake_name}, help' to hear what I can do."
 
     async def _h_help(self, c: Command) -> str:
         return ("You can ask: who is at the camera, who am I, what time is it, what's the date, status, "
@@ -201,7 +247,7 @@ class Orchestrator:
         if t.identity is None:
             return "One moment, I'm still checking."
         if t.identity == UNKNOWN:
-            return "I don't know you yet. Say 'Aether, enroll me as' and then your name."
+            return f"I don't know you yet. Say '{self.router.wake_name}, enroll me as' and then your name."
         return f"You're {display(t.identity)}."
 
     async def _h_who_known(self, c: Command) -> str:
@@ -211,7 +257,7 @@ class Orchestrator:
     async def _h_enroll(self, c: Command) -> str:
         name = c.args.get("name")
         if not name:
-            return "Say: Aether, enroll me as, followed by your name."
+            return f"Say: {self.router.wake_name}, enroll me as, followed by your name."
         people, known = self.store.load_all(), self._visible_known()
         if self._enroll is None:  # (the "already enrolling" message comes from begin_enrollment)
             if people and not known:

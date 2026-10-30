@@ -230,3 +230,46 @@ def test_add_samples_button_and_live_hint(qapp, tmp_path, monkeypatch):
         assert seen_hint or "Done." in win.chat.toPlainText()
     finally:
         win.close()
+
+
+def test_talk_button_opens_a_listening_window_that_is_visible(qapp, tmp_path):
+    win, ctl, _ = _start(qapp, tmp_path)
+    try:
+        assert wait_for(qapp, lambda: "Ready." in win.chat.toPlainText())
+        assert not win.btn_talk.isEnabled()  # no microphone in this setup
+        win._has_mic = True  # pretend there is one
+        win.btn_talk.setEnabled(True)
+        win._talk()
+        assert wait_for(qapp, lambda: ctl.attention is not None and ctl.attention[0] == "talk")
+        win._poll_state()
+        assert win.lbl_voice.text().startswith("Your turn")
+        # speech without a wake word is now accepted
+        ctl.engine.bus.publish_threadsafe(
+            Topic.SPEECH_TRANSCRIBED, Transcript("what time is it", "en", 1.0, 1.0, time.monotonic()))
+        assert wait_for(qapp, lambda: "It's " in win.chat.toPlainText())
+        assert "(ignored" not in win.chat.toPlainText()
+        win._poll_state()
+        assert win.lbl_voice.text().startswith("Follow-up")  # the conversation continues, and it says so
+    finally:
+        win.close()
+
+
+def test_ready_message_names_the_wake_word_and_f9(qapp, tmp_path):
+    win, ctl, _ = _start(qapp, tmp_path)
+    try:
+        assert wait_for(qapp, lambda: "Ready." in win.chat.toPlainText())
+        assert 'say "Aether, help"' in win.chat.toPlainText() and "F9" in win.chat.toPlainText()
+    finally:
+        win.close()
+
+
+def test_late_refreshes_after_closing_do_not_touch_the_closed_database(qapp, tmp_path):
+    """Regression: saying "goodbye" closed the window and the audit database, and a refresh timer that
+    was already scheduled then raised 'Cannot operate on a closed database'."""
+    win, ctl, _ = _start(qapp, tmp_path)
+    assert wait_for(qapp, lambda: "Ready." in win.chat.toPlainText())
+    ctl.send_text("goodbye")  # shuts the engine down from the voice/typed command, closing the window
+    assert wait_for(qapp, lambda: win._stopped)
+    win.refresh_activity()  # the late timers
+    win.refresh_people()
+    assert ctl.recent_activity() == [] and ctl.enrolled() == {}

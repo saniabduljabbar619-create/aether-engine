@@ -6,7 +6,7 @@ from html import escape
 from typing import Optional
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QProgressBar, QPushButton, QSplitter, QTableWidget,
@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
         self._poll.start(100)
         self._last_ms = 0.0
         self._brightness = 255.0
+        self._voice_text = "-"
 
     def fit_to_screen(self, avail: QRect) -> None:
         """Never taller or wider than the usable screen (a 1366x768 laptop minus the taskbar)."""
@@ -199,8 +200,14 @@ class MainWindow(QMainWindow):
         self.chk_listen = QCheckBox("Listening")
         self.chk_listen.setChecked(True)
         self.chk_listen.toggled.connect(self.ctl.set_listening)
+        self.btn_talk = QPushButton("Talk (F9)")
+        self.btn_talk.setToolTip("Push to talk: the next thing you say is a command, no wake word needed")
+        self.btn_talk.clicked.connect(self._talk)
+        self.btn_talk.setEnabled(False)
+        QShortcut(QKeySequence("F9"), self, activated=self._talk)
         self.chk_mute = QCheckBox("Mute voice replies")
         self.chk_mute.toggled.connect(self.ctl.set_muted)
+        toggles.addWidget(self.btn_talk)
         toggles.addWidget(self.chk_listen)
         toggles.addWidget(self.chk_mute)
         toggles.addStretch()
@@ -265,7 +272,7 @@ class MainWindow(QMainWindow):
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Type a command, e.g. who is at the camera")
+        self.input.setPlaceholderText("Type a command, e.g. who is at the camera (no wake word needed)")
         self.input.returnPressed.connect(self._send)
         btn = QPushButton("Send")
         btn.clicked.connect(self._send)
@@ -283,11 +290,13 @@ class MainWindow(QMainWindow):
             self.video.set_message("Camera is off")
         elif self.video._image is None:
             self.video.set_message("Waiting for the camera...")
-        self.lbl_voice.setText("Listening" if has_mic else "Mic off")
+        self._voice_text = "Listening" if has_mic else "Mic off"
+        self.lbl_voice.setText(self._voice_text)
         self.chk_listen.setEnabled(has_mic)
+        self.btn_talk.setEnabled(has_mic)
         self.refresh_people()
         self.refresh_activity()
-        self._log("Aether", "Ready. Type a command below, or say \"Aether, help\".", ACCENT)
+        self._log("Aether", f'Ready. Type a command below, say "{self.ctl.wake_name}, help", or press F9 and talk.', ACCENT)
 
     def _on_frame(self) -> None:
         item = self.ctl.bridge.take_frame()
@@ -315,7 +324,11 @@ class MainWindow(QMainWindow):
 
     def _on_voice_state(self, state: str) -> None:
         if self._has_mic and self.chk_listen.isChecked():
-            self.lbl_voice.setText({"hearing": "Hearing you...", "transcribing": "Transcribing..."}.get(state, "Listening"))
+            self._voice_text = {"hearing": "Hearing you...", "transcribing": "Transcribing..."}.get(state, "Listening")
+
+    def _talk(self) -> None:
+        if self._has_mic:
+            self.ctl.listen_now()
 
     def _poll_state(self) -> None:
         if self._stopped:
@@ -323,6 +336,14 @@ class MainWindow(QMainWindow):
         self.lbl_fps.setText(f"{self.ctl.fps:.0f} FPS" if self._has_camera else "off")
         self.lbl_ms.setText(f"{self._last_ms:.0f} ms" if self._has_camera else "-")
         self.lbl_hint.setVisible(self._has_camera and self._brightness < 60)
+        att = self.ctl.attention  # while listening without a wake word, say so: the user must know
+        if att is not None and self._has_mic:
+            kind, left = att
+            self.lbl_voice.setText(f"Your turn ({left:.0f}s)" if kind == "talk" else f"Follow-up ({left:.0f}s)")
+            self.lbl_voice.setStyleSheet(f"color: {ACCENT}; background: transparent; font-weight: 600;")
+        elif self._has_mic:
+            self.lbl_voice.setText(self._voice_text)
+            self.lbl_voice.setStyleSheet("")
         self.mic_bar.setValue(int(max(0.0, min(100.0, (self.ctl.mic_level_db + 60) * 100 / 60))))
         prog = self.ctl.enrollment_progress
         busy = prog is not None
@@ -375,6 +396,8 @@ class MainWindow(QMainWindow):
 
     # ---- views -----------------------------------------------------------
     def refresh_people(self) -> None:
+        if self._stopped:  # a timer that was already scheduled can fire after the window closed
+            return
         keep = self.people.currentItem().data(Qt.ItemDataRole.UserRole) if self.people.currentItem() else None
         self.people.clear()
         for name, n in sorted(self.ctl.enrolled().items()):
@@ -392,6 +415,8 @@ class MainWindow(QMainWindow):
         self.lbl_overlap.setVisible(bool(overlaps))
 
     def refresh_activity(self) -> None:
+        if self._stopped:
+            return
         rows = self.ctl.recent_activity(100)
         self.table.setRowCount(len(rows))
         for r, (ts, kind, detail) in enumerate(rows):
