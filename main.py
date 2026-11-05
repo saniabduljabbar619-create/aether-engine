@@ -63,9 +63,13 @@ async def run_server(args: argparse.Namespace) -> None:
     import uvicorn
     from server.api import create_app
 
+    # Headless server microservices default to camera + REST/WebSocket API.
+    # Local audio microphone is off by default in server mode unless --voice is specified.
+    use_voice = bool(getattr(args, "voice", False) and not args.no_voice)
+
     engine = Engine(
         camera=not args.no_camera,
-        voice=not args.no_voice,
+        voice=use_voice,
         tts=not args.no_tts,
         camera_index=args.camera,
         mic_device=args.mic,
@@ -95,6 +99,7 @@ if __name__ == "__main__":
     ap.add_argument("--server", action="store_true", help="run headless FastAPI server with REST and WebSockets")
     ap.add_argument("--host", type=str, default="0.0.0.0", help="server bind host (default: 0.0.0.0)")
     ap.add_argument("--port", type=int, default=8000, help="server bind port (default: 8000)")
+    ap.add_argument("--voice", action="store_true", help="enable microphone voice capture in server mode (default off in server mode)")
     ap.add_argument("--no-voice", action="store_true")
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-window", action="store_true")
