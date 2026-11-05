@@ -1,0 +1,19 @@
+COMMERCIAL ASSET & INTELLECTUAL PROPERTY TRANSFER LICENSE
+
+Copyright (c) 2026 by Author / Seller.
+
+This Commercial Software Asset License grants the purchasing entity ("Buyer") the full, perpetual, exclusive, worldwide, irrevocable, and transferable rights to this codebase, including all associated software, models, user interfaces, APIs, documentation, and design assets ("The Asset").
+
+1. GRANT OF RIGHTS
+Upon formal acquisition of this Asset (e.g., via Acquire.com, Flippa, SideProjectors, private contract, or escrow agreement), the Buyer is granted:
+- Full intellectual property ownership and commercial exploitation rights.
+- The unrestricted right to modify, refactor, rebrand, white-label, enhance, and fork the Asset.
+- The right to sublicense, lease, distribute, package into proprietary hardware, or sell software licenses (SaaS, On-Premise, or Edge Appliance) to third parties without royalties or attribution requirements.
+- The right to close the source code, incorporate it into closed proprietary systems, or register trademarks and patents based on derivative works.
+
+2. WARRANTIES & REPRESENTATIONS
+- The Seller represents that the codebase consists of original work or permissively licensed open-source dependencies (e.g., OpenCV, PySide6, FastAPI, Faster-Whisper, NumPy) compliant with standard commercial redistribution norms.
+- All biometric and facial processing is strictly local and on-premise; no third-party cloud biometric APIs or proprietary proprietary lock-ins are required.
+
+3. DISCLAIMER OF WARRANTY
+THE ASSET IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
