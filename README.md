@@ -11,10 +11,11 @@ coordinated by an asyncio event bus, with a PySide6 desktop UI.
 | Path | Responsibility |
 |------|----------------|
 | `config/` | Pydantic settings (env-driven) |
-| `core/` | Event bus, logging |
+| `core/` | Event bus, logging, orchestrator, webhooks, business profiles |
 | `vision/` | Capture worker, detector/embedder, spatial engine (matcher + filter) |
 | `audio/` | Mic recorder + VAD, Whisper STT |
-| `storage/` | SQLite audit log, reference face assets |
+| `storage/` | SQLite audit log, reference face assets, notes, reminders |
+| `server/` | Commercial FastAPI REST API, WebSockets, MJPEG streaming & Web Admin Portal |
 | `ui/` | PySide6 window and asyncio-to-Qt bridges |
 | `tests/` | Unit and concurrency tests |
 
@@ -143,6 +144,20 @@ Speech models struggle with rare words, so Aether does not depend on hearing its
 *Real face models with scripted speech-to-text results reproducing a real log: the garbled "The police and
 the camera are at the camera." and chatter are ignored, a follow-up works without the wake word, a bare
 "goodbye" does not shut down, push-to-talk works, and "Aether, goodbye" does.*
+
+## Commercial API, Webhook & Web Portal
+
+Run headless server mode:
+```bash
+python main.py --server --port 8000
+```
+- **Web Admin Dashboard:** `http://localhost:8000` (live camera feed, presence, identities, audit feed)
+- **Interactive Swagger Docs:** `http://localhost:8000/docs` (OpenAPI specification)
+- **Live MJPEG Video Stream:** `http://localhost:8000/api/stream` (embeddable in any web or mobile app)
+- **Real-Time WebSocket Feed:** `ws://localhost:8000/ws/events`
+- **Outbound Webhooks:** Zapier, Slack, Discord, Make, Home Assistant integration via `AETHER_WEBHOOK_URL`
+- **Turnkey Business Profiles:** `receptionist` (office check-in), `access_control` (liveness kiosk), `vip_greeter`
+- **1-Click Docker Deployment:** `docker compose up`
 
 ## Development and tests
 

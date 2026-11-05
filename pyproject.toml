@@ -17,6 +17,7 @@ dependencies = [
 vision = ["opencv-python>=4.9"]
 audio = ["faster-whisper>=1.0", "sounddevice>=0.4", "pyttsx3>=2.90"]
 ui = ["PySide6>=6.6"]
+server = ["fastapi>=0.110", "uvicorn>=0.28"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4"]
 # Headless builds for servers and CI (no display libraries needed). Install these instead of the
 # "vision" and "ui" extras there:  pip install -e ".[dev,ci]"

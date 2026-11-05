@@ -59,9 +59,42 @@ async def run_classic(args: argparse.Namespace) -> None:
         await engine.stop()
 
 
+async def run_server(args: argparse.Namespace) -> None:
+    import uvicorn
+    from server.api import create_app
+
+    engine = Engine(
+        camera=not args.no_camera,
+        voice=not args.no_voice,
+        tts=not args.no_tts,
+        camera_index=args.camera,
+        mic_device=args.mic,
+        on_reply=lambda text: print(f"Aether: {text}"),
+        on_status=print,
+    )
+    print("Starting Aether Engine...")
+    await engine.start()
+    for warning in engine.warnings:
+        print(warning)
+
+    app = create_app(engine)
+    config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+    server = uvicorn.Server(config)
+    print(f"\nAether API Server running at http://{args.host}:{args.port}")
+    print(f"Swagger API Documentation: http://localhost:{args.port}/docs")
+    print(f"Live Camera Stream:        http://localhost:{args.port}/api/stream\n")
+    try:
+        await server.serve()
+    finally:
+        await engine.stop()
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Aether-Vision Engine")
     ap.add_argument("--gui", action="store_true", help="desktop window (needs PySide6)")
+    ap.add_argument("--server", action="store_true", help="run headless FastAPI server with REST and WebSockets")
+    ap.add_argument("--host", type=str, default="0.0.0.0", help="server bind host (default: 0.0.0.0)")
+    ap.add_argument("--port", type=int, default=8000, help="server bind port (default: 8000)")
     ap.add_argument("--no-voice", action="store_true")
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-window", action="store_true")
@@ -74,6 +107,12 @@ if __name__ == "__main__":
         from ui.app import run_gui
 
         raise SystemExit(run_gui(a))
+    if a.server:
+        try:
+            asyncio.run(run_server(a))
+        except KeyboardInterrupt:
+            print("\nbye")
+        raise SystemExit(0)
     try:
         asyncio.run(run_classic(a))
     except KeyboardInterrupt:

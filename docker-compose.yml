@@ -1,0 +1,32 @@
+services:
+  aether-engine:
+    build: .
+    container_name: aether-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - AETHER_LLM_HOST=http://ollama:11434
+      - AETHER_LLM_ENABLED=false
+      - AETHER_LOG_LEVEL=INFO
+      - AETHER_BUSINESS_PROFILE=default
+    volumes:
+      - ./storage:/app/storage
+      - ./models:/app/models
+    # Uncomment to pass through host webcam on Linux:
+    # devices:
+    #   - /dev/video0:/dev/video0
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aether-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+
+volumes:
+  ollama_models:

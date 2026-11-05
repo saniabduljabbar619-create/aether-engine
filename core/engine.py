@@ -17,6 +17,7 @@ from core.commands import CommandRouter
 from core.event_bus import EventBus
 from core.llm import Assistant, OllamaClient
 from core.orchestrator import Orchestrator, display
+from core.webhooks import WebhookDispatcher
 from storage.face_store import FaceStore
 from storage.local_db import AuditLog
 from vision.spatial_engine import VectorIdentityMatcher
@@ -44,6 +45,9 @@ class Engine:
         self.store = FaceStore(self.cfg.faces_dir)
         self.matcher = VectorIdentityMatcher(self.cfg.similarity_threshold)
         self.audit = AuditLog(self.cfg.db_path)
+        self.webhooks = WebhookDispatcher(
+            url=self.cfg.webhook_url, secret=self.cfg.webhook_secret, bus=self.bus, audit=self.audit
+        )
         self.speaker: Optional[SwitchableSpeaker] = None
         self.orch: Optional[Orchestrator] = None
         self.cap = None
@@ -66,14 +70,19 @@ class Engine:
             else:
                 self.warnings.append("Text-to-speech is unavailable; replies are text only.")
         self.speaker = SwitchableSpeaker(inner)
+        from core.profiles import get_profile
+        prof = get_profile(self.cfg.business_profile)
+        req_liveness = prof.require_liveness or self.cfg.require_liveness
         self.orch = Orchestrator(self.bus, self.matcher, self.store, self.audit, self.speaker,
                                  router=CommandRouter(wake_words=self.cfg.wake_word_list),
                                  follow_up_seconds=self.cfg.follow_up_seconds,
-                                 require_liveness=self.cfg.require_liveness,
+                                 require_liveness=req_liveness,
                                  verified_seconds=self.cfg.verified_seconds,
-                                 status_fn=self._status_text, on_reply=self._on_reply)
+                                 status_fn=self._status_text, on_reply=self._on_reply,
+                                 profile=prof)
         self.orch.assistant = self._make_assistant()
         self.orch.start()
+        self.webhooks.start()
 
         await self._load_models()
         if self._analyzer is not None:
@@ -83,6 +92,7 @@ class Engine:
         self._on_status("Ready")
 
     async def stop(self) -> None:
+        await self.webhooks.close()
         if self.orch:
             self.orch.close()
         for fn in reversed(self._closers):

@@ -69,7 +69,7 @@ class Orchestrator:
                  speaker: Optional[Speaker] = None, router: Optional[CommandRouter] = None,
                  status_fn: Optional[Callable[[], str]] = None, on_reply: Optional[Callable[[str], None]] = None,
                  follow_up_seconds: float = 10.0, require_liveness: bool = False, verified_seconds: float = 60.0,
-                 assistant: Optional[Assistant] = None):
+                 assistant: Optional[Assistant] = None, profile: Any = None):
         self.bus, self.matcher, self.store, self.audit = bus, matcher, store, audit
         self.speaker = speaker or NullSpeaker()
         self.router = router or CommandRouter()
@@ -83,6 +83,7 @@ class Orchestrator:
         self._safe_intents = set(SAFE_WITHOUT_WAKE)
         self.assistant = assistant  # optional local chat model for open questions
         self._chat_until = 0.0  # while a conversation with the assistant is going, no wake word is needed
+        self.profile = profile
         self.require_liveness = require_liveness  # sensitive actions need a recent "verify me"
         self.verified_seconds = verified_seconds
         self._verified: Dict[str, float] = {}  # name -> when the verification expires
@@ -152,7 +153,9 @@ class Orchestrator:
 
     async def _on_recognized(self, e: Event) -> None:
         r: Recognition = e.payload
-        self._reply(f"Hello {display(r.name)}.")
+        from core.profiles import get_profile
+        prof = self.profile or get_profile("default")
+        self._reply(prof.greeting_template.format(name=display(r.name)))
 
     async def _on_audit(self, e: Event) -> None:
         p = e.payload

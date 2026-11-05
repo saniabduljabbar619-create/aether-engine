@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aether Edge AI - Admin Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card: #151b26;
+      --border: #232c3d;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 20px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+    .badge {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent);
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stream-container {
+      position: relative;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stream-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    button {
+      background: var(--border);
+      color: var(--text);
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #323d52; }
+    button.primary { background: var(--accent); color: #042215; font-weight: 600; }
+    button.primary:hover { background: var(--accent-hover); }
+    button.danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+    button.danger:hover { background: var(--danger); color: #fff; }
+    input {
+      background: #0f141f;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      width: 100%;
+    }
+    input:focus { border-color: var(--accent); }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .table th {
+      text-align: left;
+      padding: 8px 12px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+    }
+    .table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .log-feed {
+      max-height: 280px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .log-item {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      gap: 12px;
+    }
+    .log-time { color: var(--muted); }
+    .log-kind { color: var(--accent); font-weight: 600; min-width: 140px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <span>👁️ Aether Edge AI Engine</span>
+      <span class="badge" id="status-badge">ONLINE</span>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <a href="/docs" target="_blank" style="color: var(--muted); text-decoration: none; font-size: 13px;">API Docs</a>
+      <a href="/redoc" target="_blank" style="color: var(--muted); text-decoration: none; font-size: 13px;">ReDoc</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Left Column: Video Stream & Remote Control -->
+    <div>
+      <div class="card">
+        <div class="card-title">
+          <span>Live Camera Feed & Detection</span>
+          <span id="fps-label" style="font-size: 12px; color: var(--muted);">Direct Stream</span>
+        </div>
+        <div class="stream-container">
+          <img src="/api/stream" alt="Live Camera Stream" onerror="this.src=''; this.alt='No camera stream active';">
+        </div>
+        <div class="controls">
+          <input type="text" id="speak-input" placeholder="Type text for Aether to speak aloud..." style="flex: 1;">
+          <button class="primary" onclick="speakText()">Speak (TTS)</button>
+        </div>
+        <div class="controls" style="margin-top: 8px;">
+          <input type="text" id="cmd-input" placeholder="Execute command (e.g. 'what time is it', 'battery')..." style="flex: 1;">
+          <button onclick="sendCommand()">Run Command</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Enrolled People & Biometrics</div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Identity</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="identities-table">
+            <tr><td colspan="3" style="color: var(--muted);">Loading identities...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Right Column: Presence, Notes, System Stats, and Audit Logs -->
+    <div>
+      <div class="card">
+        <div class="card-title">Real-Time Presence</div>
+        <div id="presence-summary" style="font-size: 14px; margin-bottom: 12px;">Checking view...</div>
+        <div id="presence-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>System & Hardware Health</span>
+          <button style="font-size: 11px; padding: 4px 8px;" onclick="loadHealth()">Refresh</button>
+        </div>
+        <div id="health-info" style="font-size: 13px; color: var(--muted);">Checking system resources...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Real-Time Audit & Event Feed</span>
+          <button style="font-size: 11px; padding: 4px 8px;" onclick="loadAudit()">Refresh</button>
+        </div>
+        <div class="log-feed" id="audit-feed">
+          <div style="color: var(--muted);">Loading events...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadHealth() {
+      try {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        document.getElementById('health-info').innerHTML = `
+          <div><strong>Battery:</strong> ${data.battery}</div>
+          <div style="margin-top: 4px;"><strong>Hardware:</strong> ${data.resources}</div>
+          <div style="margin-top: 4px;"><strong>Voice Active:</strong> ${data.voice_active ? 'Yes' : 'No'} | <strong>Muted:</strong> ${data.tts_muted ? 'Yes' : 'No'}</div>
+        `;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadPresence() {
+      try {
+        const res = await fetch('/api/presence');
+        const data = await res.json();
+        const summary = document.getElementById('presence-summary');
+        const list = document.getElementById('presence-list');
+        if (data.count === 0) {
+          summary.innerHTML = '<span style="color: var(--muted);">No faces detected in view.</span>';
+          list.innerHTML = '';
+        } else {
+          summary.innerHTML = `<strong>${data.count}</strong> person(s) currently visible:`;
+          list.innerHTML = data.people.map(p => `
+            <div style="background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px; border-left: 3px solid ${p.is_recognized ? 'var(--accent)' : 'var(--muted)'};">
+              <strong>${p.identity}</strong> ${p.is_verified ? '<span class="badge">VERIFIED</span>' : ''}
+              <span style="float: right; color: var(--muted); font-size: 12px;">Score: ${(p.confidence * 100).toFixed(0)}%</span>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadIdentities() {
+      try {
+        const res = await fetch('/api/identities');
+        const data = await res.json();
+        const tbody = document.getElementById('identities-table');
+        if (data.count === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="color: var(--muted);">No faces enrolled yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.identities.map(id => `
+          <tr>
+            <td><strong>${id.display}</strong></td>
+            <td><span class="badge">Enrolled</span></td>
+            <td>
+              <button class="danger" style="padding: 3px 8px; font-size: 11px;" onclick="deleteIdentity('${id.name}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function deleteIdentity(name) {
+      if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+      await fetch(`/api/identities/${name}`, { method: 'DELETE' });
+      loadIdentities();
+      loadPresence();
+    }
+
+    async function loadAudit() {
+      try {
+        const res = await fetch('/api/audit?limit=15');
+        const data = await res.json();
+        const feed = document.getElementById('audit-feed');
+        if (data.count === 0) {
+          feed.innerHTML = '<div style="color: var(--muted);">No audit events recorded yet.</div>';
+          return;
+        }
+        feed.innerHTML = data.events.map(e => `
+          <div class="log-item">
+            <span class="log-time">${e.timestamp.slice(11, 19)}</span>
+            <span class="log-kind">${e.kind.replace('_', ' ')}</span>
+            <span style="color: var(--text);">${e.detail}</span>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function speakText() {
+      const input = document.getElementById('speak-input');
+      const text = input.value.trim();
+      if (!text) return;
+      await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      input.value = '';
+    }
+
+    async function sendCommand() {
+      const input = document.getElementById('cmd-input');
+      const text = input.value.trim();
+      if (!text) return;
+      await fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      input.value = '';
+      setTimeout(loadAudit, 500);
+    }
+
+    // Polling cycles for real-time responsiveness
+    loadHealth();
+    loadPresence();
+    loadIdentities();
+    loadAudit();
+    setInterval(loadPresence, 1500);
+    setInterval(loadAudit, 4000);
+  </script>
+</body>
+</html>

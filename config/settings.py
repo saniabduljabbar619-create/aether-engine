@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     db_path: str = "storage/aether.db"
     log_level: str = "INFO"
     bus_queue_size: int = Field(100, ge=1)
+    webhook_url: Optional[str] = None  # URL for outgoing webhook events (Zapier, Slack, etc.)
+    webhook_secret: Optional[str] = None  # Optional secret sent in X-Aether-Secret header
+    business_profile: str = "default"  # Turnkey profile: default, receptionist, access_control, vip_greeter
 
     @property
     def wake_word_list(self) -> List[str]:
