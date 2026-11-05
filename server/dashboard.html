@@ -154,6 +154,7 @@
       <span class="badge" id="status-badge">ONLINE</span>
     </div>
     <div style="display: flex; gap: 12px; align-items: center;">
+      <span class="badge" id="auth-badge" style="cursor: pointer; background: rgba(59, 130, 246, 0.15); color: #60a5fa;" onclick="configureApiKey()" title="Click to set or change API Key">Dev Mode</span>
       <a href="/docs" target="_blank" style="color: var(--muted); text-decoration: none; font-size: 13px;">API Docs</a>
       <a href="/redoc" target="_blank" style="color: var(--muted); text-decoration: none; font-size: 13px;">ReDoc</a>
     </div>
@@ -168,7 +169,7 @@
           <span id="fps-label" style="font-size: 12px; color: var(--muted);">Direct Stream</span>
         </div>
         <div class="stream-container">
-          <img src="/api/stream" alt="Live Camera Stream" onerror="this.src=''; this.alt='No camera stream active';">
+          <img id="camera-stream-img" src="/api/stream" alt="Live Camera Stream" onerror="this.src=''; this.alt='No camera stream active';">
         </div>
         <div class="controls">
           <input type="text" id="speak-input" placeholder="Type text for Aether to speak aloud..." style="flex: 1;">
@@ -216,7 +217,11 @@
       <div class="card">
         <div class="card-title">
           <span>Real-Time Audit & Event Feed</span>
-          <button style="font-size: 11px; padding: 4px 8px;" onclick="loadAudit()">Refresh</button>
+          <div style="display: flex; gap: 6px;">
+            <button style="font-size: 11px; padding: 4px 8px; background: rgba(16, 185, 129, 0.15); color: var(--accent);" onclick="exportCsv('attendance')">📥 Visitors (CSV)</button>
+            <button style="font-size: 11px; padding: 4px 8px;" onclick="exportCsv('all')">📥 Full Log (CSV)</button>
+            <button style="font-size: 11px; padding: 4px 8px;" onclick="loadAudit()">Refresh</button>
+          </div>
         </div>
         <div class="log-feed" id="audit-feed">
           <div style="color: var(--muted);">Loading events...</div>
@@ -226,10 +231,82 @@
   </div>
 
   <script>
+    function getApiKey() {
+      return localStorage.getItem('aether_api_key') || '';
+    }
+
+    function configureApiKey() {
+      const current = getApiKey();
+      const entered = prompt('Enter Aether API Key (leave empty for open local dev mode):', current);
+      if (entered !== null) {
+        if (entered.trim()) {
+          localStorage.setItem('aether_api_key', entered.trim());
+        } else {
+          localStorage.removeItem('aether_api_key');
+        }
+        updateAuthBadge();
+        updateStreamUrl();
+        loadHealth();
+        loadPresence();
+        loadIdentities();
+        loadAudit();
+      }
+    }
+
+    function updateAuthBadge(serverAuthRequired = false) {
+      const badge = document.getElementById('auth-badge');
+      const key = getApiKey();
+      if (key) {
+        badge.textContent = '🔒 Key Configured';
+        badge.style.color = '#34d399';
+        badge.style.background = 'rgba(52, 211, 153, 0.15)';
+      } else if (serverAuthRequired) {
+        badge.textContent = '⚠️ Key Required';
+        badge.style.color = '#f87171';
+        badge.style.background = 'rgba(239, 68, 68, 0.15)';
+      } else {
+        badge.textContent = '🔓 Dev Mode';
+        badge.style.color = '#94a3b8';
+        badge.style.background = 'rgba(148, 163, 184, 0.15)';
+      }
+    }
+
+    function updateStreamUrl() {
+      const img = document.getElementById('camera-stream-img');
+      if (!img) return;
+      const key = getApiKey();
+      img.src = '/api/stream' + (key ? `?api_key=${encodeURIComponent(key)}` : '');
+    }
+
+    async function apiFetch(url, options = {}) {
+      const key = getApiKey();
+      options.headers = options.headers || {};
+      if (key) {
+        options.headers['X-API-Key'] = key;
+      }
+      const res = await fetch(url, options);
+      if (res.status === 401) {
+        updateAuthBadge(true);
+      }
+      return res;
+    }
+
+    function exportCsv(format = 'all') {
+      const key = getApiKey();
+      const url = `/api/audit/export.csv?format=${format}` + (key ? `&api_key=${encodeURIComponent(key)}` : '');
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', format === 'attendance' ? 'aether_visitor_attendance.csv' : 'aether_audit_log.csv');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
     async function loadHealth() {
       try {
-        const res = await fetch('/api/health');
+        const res = await apiFetch('/api/health');
         const data = await res.json();
+        updateAuthBadge(Boolean(data.auth_required));
         document.getElementById('health-info').innerHTML = `
           <div><strong>Battery:</strong> ${data.battery}</div>
           <div style="margin-top: 4px;"><strong>Hardware:</strong> ${data.resources}</div>
@@ -242,7 +319,8 @@
 
     async function loadPresence() {
       try {
-        const res = await fetch('/api/presence');
+        const res = await apiFetch('/api/presence');
+        if (res.status === 401) return;
         const data = await res.json();
         const summary = document.getElementById('presence-summary');
         const list = document.getElementById('presence-list');
@@ -265,7 +343,8 @@
 
     async function loadIdentities() {
       try {
-        const res = await fetch('/api/identities');
+        const res = await apiFetch('/api/identities');
+        if (res.status === 401) return;
         const data = await res.json();
         const tbody = document.getElementById('identities-table');
         if (data.count === 0) {
@@ -288,14 +367,15 @@
 
     async function deleteIdentity(name) {
       if (!confirm(`Are you sure you want to delete ${name}?`)) return;
-      await fetch(`/api/identities/${name}`, { method: 'DELETE' });
+      await apiFetch(`/api/identities/${name}`, { method: 'DELETE' });
       loadIdentities();
       loadPresence();
     }
 
     async function loadAudit() {
       try {
-        const res = await fetch('/api/audit?limit=15');
+        const res = await apiFetch('/api/audit?limit=15');
+        if (res.status === 401) return;
         const data = await res.json();
         const feed = document.getElementById('audit-feed');
         if (data.count === 0) {
@@ -318,7 +398,7 @@
       const input = document.getElementById('speak-input');
       const text = input.value.trim();
       if (!text) return;
-      await fetch('/api/speak', {
+      await apiFetch('/api/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -330,7 +410,7 @@
       const input = document.getElementById('cmd-input');
       const text = input.value.trim();
       if (!text) return;
-      await fetch('/api/command', {
+      await apiFetch('/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -339,7 +419,9 @@
       setTimeout(loadAudit, 500);
     }
 
-    // Polling cycles for real-time responsiveness
+    // Initialize UI and start polling
+    updateAuthBadge();
+    updateStreamUrl();
     loadHealth();
     loadPresence();
     loadIdentities();

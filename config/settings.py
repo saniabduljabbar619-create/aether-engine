@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     bus_queue_size: int = Field(100, ge=1)
     webhook_url: Optional[str] = None  # URL for outgoing webhook events (Zapier, Slack, etc.)
     webhook_secret: Optional[str] = None  # Optional secret sent in X-Aether-Secret header
+    api_key: Optional[str] = None  # Optional API Key (Bearer or X-API-Key) to protect commercial REST/WS endpoints
     business_profile: str = "default"  # Turnkey profile: default, receptionist, access_control, vip_greeter
 
     @property

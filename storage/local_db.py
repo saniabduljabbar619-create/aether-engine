@@ -91,6 +91,50 @@ class AuditLog:
             self._db.execute("UPDATE reminders SET completed = 1 WHERE id = ?", (reminder_id,))
             self._db.commit()
 
+    # ---- csv exports -----------------------------------------------------
+    def export_events_csv(self, limit: int = 5000, kind: Optional[str] = None) -> str:
+        """Export audit events as a standard CSV string."""
+        import csv
+        import io
+
+        with self._lock:
+            if kind:
+                rows = self._db.execute(
+                    "SELECT id, ts, kind, detail FROM events WHERE kind = ? ORDER BY id DESC LIMIT ?",
+                    (kind, limit),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    "SELECT id, ts, kind, detail FROM events ORDER BY id DESC LIMIT ?", (limit,)
+                ).fetchall()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["ID", "Timestamp", "Event Type", "Details"])
+        for row in rows:
+            writer.writerow(row)
+        return buf.getvalue()
+
+    def export_visitor_attendance_csv(self, limit: int = 5000) -> str:
+        """Export presence and recognition visitor log as CSV for front-desk, HR, and access control."""
+        import csv
+        import io
+
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, ts, kind, detail FROM events "
+                "WHERE kind IN ('presence', 'face_recognized', 'enrolled', 'liveness') "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["ID", "Timestamp", "Activity", "Description"])
+        for row in rows:
+            writer.writerow(row)
+        return buf.getvalue()
+
     def close(self) -> None:
         with self._lock:
             self._db.close()

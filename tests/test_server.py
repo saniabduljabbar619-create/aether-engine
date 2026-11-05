@@ -154,3 +154,68 @@ async def test_audit_endpoint(make_engine):
         assert data["count"] >= 1
         assert any(e["kind"] == "test_event" for e in data["events"])
     await engine.stop()
+
+
+async def test_audit_csv_export(make_engine):
+    engine = await make_engine()
+    engine.audit.record("presence", "Saw Alice at main lobby")
+    engine.audit.record("command", "unlock gate")
+    app = create_app(engine)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Full export
+        r = await client.get("/api/audit/export.csv")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/csv")
+        assert "ID,Timestamp,Event Type,Details" in r.text
+        assert "Saw Alice at main lobby" in r.text
+
+        # Attendance format
+        r = await client.get("/api/audit/export.csv?format=attendance")
+        assert r.status_code == 200
+        assert "ID,Timestamp,Activity,Description" in r.text
+        assert "Saw Alice at main lobby" in r.text
+        assert "unlock gate" not in r.text
+    await engine.stop()
+
+
+async def test_api_key_authentication(tmp_path):
+    cfg = Settings(
+        db_path=str(tmp_path / "test.db"),
+        faces_dir=str(tmp_path / "faces"),
+        api_key="secret-token-123",
+    )
+    engine = Engine(cfg=cfg, camera=False, voice=False, tts=False)
+    await engine.start()
+    app = create_app(engine)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Health check is public and reports auth_required
+        r = await client.get("/api/health")
+        assert r.status_code == 200
+        assert r.json()["auth_required"] is True
+
+        # Unauthenticated request to protected endpoint -> 401
+        r = await client.get("/api/presence")
+        assert r.status_code == 401
+
+        # Invalid key -> 401
+        r = await client.get("/api/presence", headers={"X-API-Key": "wrong-token"})
+        assert r.status_code == 401
+
+        # Valid X-API-Key header -> 200
+        r = await client.get("/api/presence", headers={"X-API-Key": "secret-token-123"})
+        assert r.status_code == 200
+
+        # Valid Bearer token -> 200
+        r = await client.post(
+            "/api/speak",
+            json={"text": "Authorized speak"},
+            headers={"Authorization": "Bearer secret-token-123"},
+        )
+        assert r.status_code == 200
+
+        # Valid query parameter for CSV export -> 200
+        r = await client.get("/api/audit/export.csv?api_key=secret-token-123")
+        assert r.status_code == 200
+
+    await engine.stop()

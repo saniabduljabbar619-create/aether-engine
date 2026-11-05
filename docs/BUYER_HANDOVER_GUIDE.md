@@ -45,6 +45,13 @@ To resell this engine under your own company or product name (e.g., *"ApexVision
    - Line 120: Change `<span>👁️ Aether Edge AI Engine</span>` to your brand name and custom SVG logo.
 3. **Change PySide6 Desktop GUI Branding (`ui/main_window.py`):**
    - Update window title `self.setWindowTitle("ApexVision Kiosk")`.
+4. **API Key Security & SaaS Token Protection (`.env`):**
+   - Set `AETHER_API_KEY=your_secure_api_token` to protect all REST endpoints, WebSocket feeds, and streams.
+   - Clients supply the token via `X-API-Key: ...`, `Authorization: Bearer ...`, or `?api_key=...`.
+5. **One-Click CSV Visitor & Audit Export:**
+   - Front-desk attendance: `GET /api/audit/export.csv?format=attendance`
+   - Complete system audit log: `GET /api/audit/export.csv?format=all`
+   - Download directly from the browser in the Web Management Portal.
 
 ---
 

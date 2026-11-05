@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -110,6 +110,25 @@ def create_app(engine: Engine) -> FastAPI:
     )
 
     # ---- API Routes ------------------------------------------------------
+    async def verify_auth(
+        x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+        authorization: Optional[str] = Header(None),
+        api_key: Optional[str] = Query(None),
+    ) -> None:
+        """Enforce API Key authentication if configured in settings (dev mode if None)."""
+        expected = getattr(engine.cfg, "api_key", None)
+        if not expected:
+            return  # No authentication configured (open local dev mode)
+        token = x_api_key or api_key
+        if not token and authorization and authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+        if not token or token != expected:
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: invalid or missing API key. Provide via X-API-Key header, Authorization: Bearer, or ?api_key= query parameter.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     @app.get("/", response_class=HTMLResponse, tags=["Dashboard"], include_in_schema=False)
     async def get_dashboard() -> str:
         """Serve the modern dark-mode web management dashboard."""
@@ -125,6 +144,7 @@ def create_app(engine: Engine) -> FastAPI:
         known_count = len(engine.store.load_all())
         return {
             "status": "online",
+            "auth_required": bool(engine.cfg.api_key),
             "camera_active": engine.cap is not None,
             "voice_active": engine.mic is not None,
             "tts_muted": bool(engine.speaker.muted if engine.speaker else False),
@@ -133,7 +153,7 @@ def create_app(engine: Engine) -> FastAPI:
             "resources": get_system_resources(),
         }
 
-    @app.get("/api/presence", tags=["Vision"])
+    @app.get("/api/presence", tags=["Vision"], dependencies=[Depends(verify_auth)])
     async def get_presence() -> Dict[str, Any]:
         """Query real-time presence of people in front of the camera."""
         orch = engine.orch
@@ -160,7 +180,7 @@ def create_app(engine: Engine) -> FastAPI:
             "people": details,
         }
 
-    @app.get("/api/identities", tags=["Biometrics"])
+    @app.get("/api/identities", tags=["Biometrics"], dependencies=[Depends(verify_auth)])
     async def list_identities() -> Dict[str, Any]:
         """List all enrolled identities and their sample counts."""
         names = engine.store.load_all()
@@ -169,7 +189,7 @@ def create_app(engine: Engine) -> FastAPI:
             "identities": [{"name": n, "display": display(n)} for n in sorted(names)],
         }
 
-    @app.delete("/api/identities/{name}", tags=["Biometrics"])
+    @app.delete("/api/identities/{name}", tags=["Biometrics"], dependencies=[Depends(verify_auth)])
     async def delete_identity(name: str) -> Dict[str, Any]:
         """Delete an enrolled identity and their vector embeddings."""
         n = engine.store.remove(name)
@@ -180,7 +200,7 @@ def create_app(engine: Engine) -> FastAPI:
         engine.bus.publish(Topic.PEOPLE_CHANGED, name)
         return {"status": "deleted", "name": name, "samples_removed": n}
 
-    @app.post("/api/speak", tags=["Voice"])
+    @app.post("/api/speak", tags=["Voice"], dependencies=[Depends(verify_auth)])
     async def speak(req: SpeakRequest) -> Dict[str, Any]:
         """Trigger text-to-speech output on the engine's speaker."""
         if not engine.speaker:
@@ -188,7 +208,7 @@ def create_app(engine: Engine) -> FastAPI:
         engine.speaker.say(req.text)
         return {"status": "spoken", "text": req.text}
 
-    @app.post("/api/command", tags=["Orchestration"])
+    @app.post("/api/command", tags=["Orchestration"], dependencies=[Depends(verify_auth)])
     async def execute_command(req: CommandRequest) -> Dict[str, Any]:
         """Execute a text-based or simulated spoken command directly through the orchestrator."""
         from audio.stt_engine import Transcript
@@ -198,7 +218,7 @@ def create_app(engine: Engine) -> FastAPI:
         engine.bus.publish(Topic.SPEECH_TRANSCRIBED, Transcript(req.text, "typed", 0.0, 0.0, 0.0))
         return {"status": "accepted", "command": req.text}
 
-    @app.get("/api/audit", tags=["Audit & Logs"])
+    @app.get("/api/audit", tags=["Audit & Logs"], dependencies=[Depends(verify_auth)])
     async def get_audit(limit: int = Query(default=10, ge=1, le=100)) -> Dict[str, Any]:
         """Retrieve recent audit events from the local database."""
         events = engine.audit.recent(n=limit)
@@ -207,7 +227,26 @@ def create_app(engine: Engine) -> FastAPI:
             "events": [{"timestamp": ts, "kind": kind, "detail": detail} for ts, kind, detail in events],
         }
 
-    @app.get("/api/notes", tags=["Notes"])
+    @app.get("/api/audit/export.csv", tags=["Audit & Logs"], dependencies=[Depends(verify_auth)])
+    async def export_audit_csv(
+        limit: int = Query(default=1000, ge=1, le=10000),
+        format: str = Query(default="all"),
+        kind: Optional[str] = Query(default=None),
+    ) -> Response:
+        """Export audit events or visitor attendance as a standard downloadable CSV file."""
+        if format == "attendance":
+            csv_text = engine.audit.export_visitor_attendance_csv(limit=limit)
+            filename = "aether_visitor_attendance.csv"
+        else:
+            csv_text = engine.audit.export_events_csv(limit=limit, kind=kind)
+            filename = "aether_audit_log.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/api/notes", tags=["Notes"], dependencies=[Depends(verify_auth)])
     async def get_notes(limit: int = Query(default=10, ge=1, le=50)) -> Dict[str, Any]:
         """Retrieve saved notes."""
         notes = engine.audit.get_notes(limit=limit)
@@ -217,21 +256,21 @@ def create_app(engine: Engine) -> FastAPI:
                       for nid, ts, author, text in notes],
         }
 
-    @app.post("/api/notes", tags=["Notes"])
+    @app.post("/api/notes", tags=["Notes"], dependencies=[Depends(verify_auth)])
     async def create_note(req: NoteRequest) -> Dict[str, Any]:
         """Save a new note."""
         nid = engine.audit.add_note(req.text, author=req.author or "")
         engine.audit.record("api_note_added", f"{req.text} (by {req.author or 'api'})")
         return {"status": "created", "id": nid, "text": req.text, "author": req.author}
 
-    @app.delete("/api/notes", tags=["Notes"])
+    @app.delete("/api/notes", tags=["Notes"], dependencies=[Depends(verify_auth)])
     async def clear_notes() -> Dict[str, Any]:
         """Clear all stored notes."""
         deleted = engine.audit.clear_notes()
         engine.audit.record("api_notes_cleared", f"{deleted} notes deleted")
         return {"status": "cleared", "deleted_count": deleted}
 
-    @app.get("/api/reminders", tags=["Reminders"])
+    @app.get("/api/reminders", tags=["Reminders"], dependencies=[Depends(verify_auth)])
     async def get_reminders() -> Dict[str, Any]:
         """Retrieve active pending reminders."""
         now = time.time()
@@ -249,7 +288,7 @@ def create_app(engine: Engine) -> FastAPI:
             ],
         }
 
-    @app.post("/api/reminders", tags=["Reminders"])
+    @app.post("/api/reminders", tags=["Reminders"], dependencies=[Depends(verify_auth)])
     async def create_reminder(req: ReminderRequest) -> Dict[str, Any]:
         """Schedule a new reminder."""
         due_at = time.time() + req.seconds
@@ -257,7 +296,7 @@ def create_app(engine: Engine) -> FastAPI:
         engine.audit.record("api_reminder_set", f"{req.text} in {req.seconds:.0f}s")
         return {"status": "scheduled", "id": rid, "due_in_seconds": req.seconds, "text": req.text}
 
-    @app.get("/api/stream", tags=["Vision"], summary="Live MJPEG Camera Stream")
+    @app.get("/api/stream", tags=["Vision"], summary="Live MJPEG Camera Stream", dependencies=[Depends(verify_auth)])
     async def mjpeg_stream():
         """Returns a multipart/x-mixed-replace live JPEG stream of the camera feed with bounding boxes."""
         import cv2
@@ -294,8 +333,12 @@ def create_app(engine: Engine) -> FastAPI:
         return StreamingResponse(generator(), media_type="multipart/x-mixed-replace; boundary=frame")
 
     @app.websocket("/ws/events")
-    async def websocket_events(websocket: WebSocket):
+    async def websocket_events(websocket: WebSocket, api_key: Optional[str] = Query(None)):
         """Live WebSocket event stream for building external dashboards, home automation, or integrations."""
+        expected = getattr(engine.cfg, "api_key", None)
+        if expected and api_key != expected:
+            await websocket.close(code=1008)  # 1008 = Policy violation
+            return
         await websocket.accept()
         ws_clients.append(websocket)
         try:

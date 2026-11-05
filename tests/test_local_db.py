@@ -61,3 +61,29 @@ def test_reminders_storage():
     assert pending_after[0][0] == r1
     db.close()
 
+
+def test_csv_exports():
+    db = AuditLog(":memory:")
+    db.record("presence", "Saw Alice")
+    db.record("command", "what time is it")
+    db.record("enrolled", "Bob enrolled")
+
+    # Full events export
+    csv_all = db.export_events_csv()
+    assert "ID,Timestamp,Event Type,Details" in csv_all
+    assert "Saw Alice" in csv_all
+    assert "what time is it" in csv_all
+
+    # Filtered by kind
+    csv_filtered = db.export_events_csv(kind="presence")
+    assert "Saw Alice" in csv_filtered
+    assert "what time is it" not in csv_filtered
+
+    # Visitor attendance export
+    csv_visitors = db.export_visitor_attendance_csv()
+    assert "ID,Timestamp,Activity,Description" in csv_visitors
+    assert "Saw Alice" in csv_visitors
+    assert "Bob enrolled" in csv_visitors
+    assert "what time is it" not in csv_visitors
+    db.close()
+

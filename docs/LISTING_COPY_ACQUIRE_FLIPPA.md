@@ -29,13 +29,13 @@ Unlike cloud-dependent AI tools that charge per-API call and raise serious biome
 
 ### 🌟 Key Commercial Assets Included in Sale:
 1. **Full Intellectual Property & Commercial License:** Perpetual, unencumbered rights to white-label, rebrand, resell, or bundle into proprietary hardware.
-2. **Headless REST & WebSocket API:** Production-ready FastAPI service with automated OpenAPI / Swagger documentation (`/docs`) and real-time WebSocket event feeds (`/ws/events`).
+2. **Headless REST & WebSocket API:** Production-ready FastAPI service with automated OpenAPI / Swagger documentation (`/docs`), API Key / Bearer token security, and real-time WebSocket event feeds (`/ws/events`).
 3. **Live MJPEG Video Stream (`/api/stream`):** Embed real-time annotated camera video directly into any web or mobile app with a simple `<img>` tag.
 4. **Outbound Webhook Dispatcher:** Integrates with Zapier, Slack, Discord, Make, or Home Assistant on key events (face recognized, stranger detected, liveness passed).
-5. **Modern Browser Admin Portal:** Responsive dark-mode web dashboard for camera monitoring, presence checks, face management, and live audit log inspection.
+5. **Modern Browser Admin Portal & CSV Reporting:** Responsive dark-mode web dashboard for camera monitoring, presence checks, face management, and 1-click CSV downloads for front-desk visitor attendance and security logs.
 6. **PySide6 Desktop Application:** Native cross-platform desktop UI for dedicated kiosk screens.
 7. **Production Docker Deployment:** 1-click `docker compose up` configuration.
-8. **Automated Test Suite:** 301 comprehensive pytest tests with zero external cloud dependencies.
+8. **Automated Test Suite:** 304 comprehensive pytest tests with zero external cloud dependencies.
 
 ---
 
