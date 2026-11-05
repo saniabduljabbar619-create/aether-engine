@@ -87,25 +87,31 @@ class Assistant:
     """Answers a question with a little memory of the conversation."""
 
     def __init__(self, client, wake_name: str = "Aether", context_fn: Optional[Callable[[], str]] = None,
-                 memory_turns: int = 4, memory_seconds: float = 300.0) -> None:
+                 memory_turns: int = 6, memory_seconds: float = 300.0) -> None:
         self.client, self.wake_name = client, wake_name
         self.context_fn = context_fn or (lambda: "")
         self.memory_seconds = memory_seconds
-        self._turns: Deque[Tuple[float, str, str]] = deque(maxlen=memory_turns)
+        self._turns: Deque[Tuple[float, Optional[str], str, str]] = deque(maxlen=memory_turns)
 
     def forget(self) -> None:
         self._turns.clear()
 
-    async def ask(self, question: str) -> str:
+    def history(self) -> List[Tuple[float, Optional[str], str, str]]:
+        """Return recorded turns: (timestamp, speaker, question, answer)."""
+        return list(self._turns)
+
+    async def ask(self, question: str, speaker: Optional[str] = None) -> str:
         now = time.monotonic()
         while self._turns and now - self._turns[0][0] > self.memory_seconds:
             self._turns.popleft()
         messages = [{"role": "system", "content": system_prompt(self.wake_name, self.context_fn())}]
-        for _, q, a in self._turns:
-            messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": question})
+        for _, spk, q, a in self._turns:
+            user_msg = f"{spk}: {q}" if spk else q
+            messages += [{"role": "user", "content": user_msg}, {"role": "assistant", "content": a}]
+        curr_msg = f"{speaker}: {question}" if speaker else question
+        messages.append({"role": "user", "content": curr_msg})
         answer = tidy(await self.client.chat(messages))
         if not answer:
             raise LLMError("empty answer")
-        self._turns.append((time.monotonic(), question, answer))
+        self._turns.append((time.monotonic(), speaker, question, answer))
         return answer

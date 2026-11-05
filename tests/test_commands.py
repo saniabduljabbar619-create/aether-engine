@@ -30,11 +30,44 @@ def intent(text, router=None):
     ("Aether, remember my face", "enroll"),
     ("Aether forget me", "forget_me"),
     ("Aether delete my data", "forget_me"),
+    ("Aether mute audio", "mute"),
+    ("Aether silence", "mute"),
+    ("Aether unmute voice", "unmute"),
+    ("Aether battery status", "battery"),
+    ("Aether how much battery", "battery"),
+    ("Aether system stats", "system_stats"),
+    ("Aether memory usage", "system_stats"),
+    ("Aether take a note buy coffee", "note"),
+    ("Aether what are my notes", "list_notes"),
+    ("Aether read notes", "list_notes"),
+    ("Aether clear my notes", "clear_notes"),
+    ("Aether set a timer for 5 minutes", "reminder"),
+    ("Aether remind me in 10 seconds to stretch", "reminder"),
+    ("Aether what are my reminders", "list_reminders"),
+    ("Aether clear our conversation", "clear_chat"),
+    ("Aether forget what we talked about", "clear_chat"),
     ("Aether sing me a song", "unknown"),
     ("Aether", "attention"),
 ])
 def test_intents(text, expected):
     assert intent(text) == expected
+
+
+def test_note_and_reminder_extraction():
+    r = CommandRouter()
+    cmd = r.parse("Aether take a note buy eggs and bread")
+    assert cmd.intent == "note"
+    assert cmd.args["text"] == "buy eggs and bread"
+
+    cmd = r.parse("Aether set a timer for 10 minutes")
+    assert cmd.intent == "reminder"
+    assert float(cmd.args["duration"]) == 600.0
+    assert cmd.args["text"] == "timer"
+
+    cmd = r.parse("Aether remind me in 30 seconds to breathe")
+    assert cmd.intent == "reminder"
+    assert float(cmd.args["duration"]) == 30.0
+    assert cmd.args["text"] == "breathe"
 
 
 def test_who_am_i_is_not_swallowed_by_who_here():
@@ -111,8 +144,9 @@ def test_command_remembers_whether_the_wake_word_was_said():
 
 
 def test_only_harmless_intents_are_safe_without_the_wake_word():
-    assert {"time", "date", "status", "help", "thanks", "who_here", "who_am_i"} == set(SAFE_WITHOUT_WAKE)
-    for risky in ("shutdown", "forget_me", "enroll", "who_known", "recent"):
+    assert {"time", "date", "status", "help", "thanks", "who_here", "who_am_i",
+            "battery", "system_stats", "list_notes", "list_reminders", "clear_chat"} == set(SAFE_WITHOUT_WAKE)
+    for risky in ("shutdown", "forget_me", "enroll", "who_known", "recent", "mute", "unmute", "clear_notes", "note", "reminder"):
         assert risky not in SAFE_WITHOUT_WAKE
 
 

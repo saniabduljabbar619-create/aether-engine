@@ -263,7 +263,12 @@ Say the wake word first, so ordinary conversation is ignored: **"Aether, ..."** 
 | enroll me as `<name>` | captures 10 varied views of the one face in view, then remembers it |
 | forget me | deletes the recognized person's stored face data |
 | who do you know / status / recent activity | lists enrolled people / system status / last audit events |
-| what time is it / what's the date | |
+| what time is it / what's the date | tells the current time and date |
+| battery / system resources | reports battery level, RAM and CPU cores |
+| take a note `<text>` / read notes / clear notes | saves, reads, or deletes local SQLite notes |
+| set a timer for `<duration>` / reminders | sets a background alert and lists active timers |
+| mute / unmute | silences or restores text-to-speech audio |
+| clear conversation | forgets recent conversation turns in memory |
 | help / goodbye | lists commands / shuts down |
 
 ![conversation](docs/screenshots/orchestrator_conversation.png)

@@ -130,3 +130,27 @@ async def test_model_text_is_never_executed_as_a_command(rig, ollama):
     await rig.see("Alice")
     await rig.hear("aether tell me a story")
     assert sorted(rig.store.load_all()) == ["Alice"] and not rig.orch.shutdown.is_set()
+
+
+async def test_speaker_aware_memory_and_history(ollama):
+    a = Assistant(OllamaClient("m", ollama.host), "Aether")
+    assert a.history() == []
+    await a.ask("hello", speaker="Alice")
+    assert len(a.history()) == 1
+    assert a.history()[0][1] == "Alice"
+    assert a.history()[0][2] == "hello"
+
+    last_req = ollama.requests[-1]
+    user_content = last_req["messages"][-1]["content"]
+    assert user_content == "Alice: hello"
+
+
+async def test_clear_chat_command(rig, ollama):
+    rig.orch.assistant = Assistant(OllamaClient("m", ollama.host))
+    await rig.hear("aether what is the capital of france")
+    assert len(rig.orch.assistant.history()) == 1
+
+    await rig.hear("aether clear our conversation")
+    assert "forgotten our conversation" in rig.replies[-1]
+    assert len(rig.orch.assistant.history()) == 0
+

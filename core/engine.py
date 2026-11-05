@@ -112,8 +112,37 @@ class Engine:
 
         def context() -> str:
             now = datetime.now()
-            seen = ", ".join(display(n) for n in orch._visible_known()) or "nobody I know"
-            return f"- It is {now.strftime('%A %B %d, %I:%M %p')}.\n- In front of the camera: {seen}."
+            tracks = orch._visible()
+            known = orch._visible_known()
+            if not tracks:
+                vision_summary = "nobody in view"
+            elif known:
+                verified = set(orch.verified_names())
+                known_desc = [f"{display(k)}{' (verified)' if k in verified else ''}" for k in known]
+                unknown_count = sum(1 for t in tracks if getattr(t, "identity", None) == "Unknown")
+                if unknown_count:
+                    vision_summary = f"{', '.join(known_desc)} and {unknown_count} unrecognized person(s)"
+                else:
+                    vision_summary = ", ".join(known_desc)
+            else:
+                vision_summary = f"{len(tracks)} unrecognized person(s)"
+
+            lines = [
+                f"- It is {now.strftime('%A %B %d, %I:%M %p')}.",
+                f"- In front of the camera: {vision_summary}.",
+            ]
+
+            notes = orch.audit.get_notes(limit=3)
+            if notes:
+                recent_notes = [f'"{text}"' for _, _, _, text in notes]
+                lines.append(f"- User notes: {', '.join(recent_notes)}.")
+
+            pending = orch.audit.get_pending_reminders(time.time(), limit=3)
+            if pending:
+                rem_descs = [f'"{task}"' for _, _, _, task in pending]
+                lines.append(f"- Active reminders: {', '.join(rem_descs)}.")
+
+            return "\n".join(lines)
 
         log.info("chat model: %s at %s", self.cfg.llm_model, self.cfg.llm_host)
         return Assistant(client, self.cfg.wake_word_list[0].title(), context)

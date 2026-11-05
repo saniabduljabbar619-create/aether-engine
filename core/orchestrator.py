@@ -97,18 +97,27 @@ class Orchestrator:
         self._hint_said = ("", float("-inf"))
         self._dup_checked = False
         self._enroll_task: Optional[asyncio.Task] = None
+        self._reminder_task: Optional[asyncio.Task] = None
         self._handlers: Dict[str, Handler] = {
             "attention": self._h_attention, "unknown": self._h_unknown, "help": self._h_help,
             "thanks": self._h_thanks, "time": self._h_time, "date": self._h_date,
             "status": self._h_status, "recent": self._h_recent, "who_here": self._h_who_here,
             "who_am_i": self._h_who_am_i, "who_known": self._h_who_known, "enroll": self._h_enroll,
             "forget_me": self._h_forget, "shutdown": self._h_shutdown, "verify": self._h_verify,
+            "mute": self._h_mute, "unmute": self._h_unmute,
+            "battery": self._h_battery, "system_stats": self._h_system_stats,
+            "note": self._h_note, "list_notes": self._h_list_notes, "clear_notes": self._h_clear_notes,
+            "reminder": self._h_reminder, "list_reminders": self._h_list_reminders,
+            "clear_chat": self._h_clear_chat,
         }
 
     def close(self) -> None:
         """Stop background work (an enrollment or verification in progress) before the bus shuts down."""
         self._end_enrollment()
         self._end_verification()
+        if self._reminder_task is not None:
+            self._reminder_task.cancel()
+            self._reminder_task = None
 
     def register_handler(self, intent: str, patterns: List[str], handler: Handler,
                          safe_without_wake: bool = False, requires_verified: bool = False) -> None:
@@ -134,6 +143,8 @@ class Orchestrator:
         sub(Topic.SPEECH_TRANSCRIBED, self._on_transcript, max_queue=8)
         for topic in (Topic.FACE_RECOGNIZED, Topic.COMMAND_ISSUED, Topic.SYSTEM_ERROR):
             sub(topic, self._on_audit)
+        if self._reminder_task is None:
+            self._reminder_task = asyncio.create_task(self._check_reminders_loop())
 
     # ---- bus handlers ----------------------------------------------------
     async def _on_view(self, e: Event) -> None:
@@ -317,13 +328,19 @@ class Orchestrator:
         if self.assistant is not None:
             self.assistant.forget()
 
+    async def _h_clear_chat(self, c: Command) -> str:
+        self._end_chat()
+        return "I've forgotten our conversation history."
+
     async def _h_unknown(self, c: Command) -> str:
         if self.assistant is not None:
             if END_CHAT.search(c.text):  # "thanks, that's all" ends the conversation politely
                 self._end_chat()
                 return "Anytime."
+            known = self._visible_known()
+            speaker = display(known[0]) if len(known) == 1 else None
             try:
-                answer = await self.assistant.ask(c.text)
+                answer = await self.assistant.ask(c.text, speaker=speaker)
             except LLMError as exc:
                 log.warning("assistant unavailable: %s", exc)
                 return "I can't reach my thinking model right now. I can still do the built-in commands; say help."
@@ -333,7 +350,102 @@ class Orchestrator:
 
     async def _h_help(self, c: Command) -> str:
         return ("You can ask: who is at the camera, who am I, what time is it, what's the date, status, "
-                "recent activity, who do you know. Or: enroll me as, then your name; verify me; forget me; goodbye.")
+                "battery, system resources, recent activity, who do you know. "
+                "You can take notes, list notes, clear notes, set a timer, or list reminders. "
+                "Or: enroll me as, then your name; verify me; mute; unmute; forget me; goodbye.")
+
+    async def _h_mute(self, c: Command) -> str:
+        self.speaker.muted = True
+        return "Audio muted."
+
+    async def _h_unmute(self, c: Command) -> str:
+        self.speaker.muted = False
+        return "Audio unmuted."
+
+    async def _h_battery(self, c: Command) -> str:
+        from core.system_info import get_battery_status
+        return get_battery_status()
+
+    async def _h_system_stats(self, c: Command) -> str:
+        from core.system_info import get_system_resources
+        return get_system_resources()
+
+    async def _h_note(self, c: Command) -> str:
+        text = c.args.get("text")
+        if not text:
+            return "What would you like me to note?"
+        known = self._visible_known()
+        author = known[0] if known else ""
+        self.audit.add_note(text, author=author)
+        self.audit.record("note_added", f"{text} (by {author or 'unknown'})")
+        return f"Noted: {text}."
+
+    async def _h_list_notes(self, c: Command) -> str:
+        notes = self.audit.get_notes(limit=5)
+        if not notes:
+            return "You don't have any saved notes."
+        items = [f"Note: {text}" for _, _, _, text in reversed(notes)]
+        return "Here are your recent notes: " + "; ".join(items) + "."
+
+    async def _h_clear_notes(self, c: Command) -> str:
+        count = self.audit.clear_notes()
+        self.audit.record("notes_cleared", f"{count} notes deleted")
+        return f"Cleared {count} {'note' if count == 1 else 'notes'}." if count else "No notes to clear."
+
+    async def _h_reminder(self, c: Command) -> str:
+        duration_str = c.args.get("duration")
+        task = c.args.get("text", "timer")
+        if not duration_str:
+            return "For how long? Please say something like: set a timer for 5 minutes."
+        duration = float(duration_str)
+        due_at = time.time() + duration
+        known = self._visible_known()
+        author = known[0] if known else ""
+        self.audit.add_reminder(task, due_at, author=author)
+        self.audit.record("reminder_set", f"{task} in {duration:.0f}s (by {author or 'unknown'})")
+        if duration >= 3600:
+            h = int(duration // 3600)
+            dur_text = f"{h} hour{'s' if h != 1 else ''}"
+        elif duration >= 60:
+            m = int(duration // 60)
+            dur_text = f"{m} minute{'s' if m != 1 else ''}"
+        else:
+            s = int(duration)
+            dur_text = f"{s} second{'s' if s != 1 else ''}"
+        return f"Timer set for {dur_text}: {task}."
+
+    async def _h_list_reminders(self, c: Command) -> str:
+        now = time.time()
+        pending = self.audit.get_pending_reminders(now, limit=5)
+        if not pending:
+            return "You don't have any active timers or reminders."
+        lines = []
+        for _, due_at, author, task in pending:
+            diff = max(0, int(due_at - now))
+            if diff >= 3600:
+                time_str = f"in {diff // 3600} hours"
+            elif diff >= 60:
+                time_str = f"in {diff // 60} minutes"
+            else:
+                time_str = f"in {diff} seconds"
+            lines.append(f"{task} ({time_str})")
+        return "Active reminders: " + "; ".join(lines) + "."
+
+    async def _check_reminders_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(0.5)
+                now = time.time()
+                due = self.audit.get_due_reminders(now)
+                for rid, _, author, text in due:
+                    self.audit.mark_reminder_completed(rid)
+                    self.audit.record("reminder_triggered", f"{text} (for {author or 'user'})")
+                    msg = f"Reminder for {display(author)}: {text}" if author else f"Reminder: {text}"
+                    self._reply(msg)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("reminder loop failed")
 
     async def _h_thanks(self, c: Command) -> str:
         self._end_chat()

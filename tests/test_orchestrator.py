@@ -443,3 +443,49 @@ async def test_help_and_prompts_use_the_configured_wake_word(rig):
     assert "'Computer, help'" in rig.replies[-1]
     await rig.hear("Computer, enroll me")
     assert "Computer, enroll me as" in rig.replies[-1]
+
+
+async def test_mute_and_unmute_commands(rig):
+    await rig.hear("Aether, mute")
+    assert "muted" in rig.replies[-1].lower()
+    assert rig.orch.speaker.muted is True
+    await rig.hear("Aether, unmute")
+    assert "unmuted" in rig.replies[-1].lower()
+    assert rig.orch.speaker.muted is False
+
+
+async def test_note_commands(rig):
+    await rig.see("Alice")
+    await rig.hear("Aether, take a note pick up groceries")
+    assert "Noted: pick up groceries" in rig.replies[-1]
+
+    await rig.hear("Aether, what are my notes")
+    assert "pick up groceries" in rig.replies[-1]
+
+    await rig.hear("Aether, clear notes")
+    assert "Cleared 1 note" in rig.replies[-1]
+
+    await rig.hear("Aether, what are my notes")
+    assert "don't have any saved notes" in rig.replies[-1]
+
+
+async def test_reminder_commands(rig):
+    await rig.hear("Aether, set a timer for 1 second")
+    assert "Timer set for 1 second" in rig.replies[-1]
+    assert "timer" in rig.replies[-1]
+
+    await rig.hear("Aether, what are my reminders")
+    assert "Active reminders" in rig.replies[-1]
+
+    # Wait for the background loop to trigger the reminder
+    await asyncio.sleep(1.2)
+    assert any("Reminder" in r for r in rig.replies)
+
+
+async def test_battery_and_system_stats(rig):
+    await rig.hear("Aether, battery status")
+    assert "battery" in rig.replies[-1].lower() or "power" in rig.replies[-1].lower()
+
+    await rig.hear("Aether, system stats")
+    assert "cpu" in rig.replies[-1].lower() or "memory" in rig.replies[-1].lower()
+

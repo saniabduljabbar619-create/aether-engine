@@ -31,9 +31,12 @@ class Addressing(str, Enum):
 
 
 # Harmless, read-only intents that may run without the wake word in a follow-up window. Anything that
-# changes data (enroll, forget), stops the system, or reveals names or activity needs the wake word,
+# changes data (enroll, forget, clear), stops the system, or reveals names or activity needs the wake word,
 # so a "goodbye" said to someone else on the phone cannot shut the system down.
-SAFE_WITHOUT_WAKE = frozenset({"time", "date", "status", "help", "thanks", "who_here", "who_am_i"})
+SAFE_WITHOUT_WAKE = frozenset({
+    "time", "date", "status", "help", "thanks", "who_here", "who_am_i",
+    "battery", "system_stats", "list_notes", "list_reminders", "clear_chat"
+})
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,8 @@ def is_wake_word(token: str, wake: str = WAKE_WORD, threshold: float = 0.75) -> 
 # (intent, patterns). Order matters.
 _BUILTIN: List[Tuple[str, List[str]]] = [
     ("shutdown", [r"\b(shut ?down|good ?bye|exit|quit|stop listening|turn off)\b"]),
+    ("mute", [r"\b(mute(?: audio| sound| voice)?|silence|be quiet|stop talking)\b"]),
+    ("unmute", [r"\b(unmute(?: audio| sound| voice)?|speak again|turn voice on)\b"]),
     ("verify", [r"\b(verify|authenticate)\b.*\b(me|my identity|that i'?m|i am)\b", r"\bam i (real|alive|a real person)\b",
                 r"\bliveness\b", r"\b(prove|confirm|check)\b.*\b(i'?m|i am|it'?s|that it'?s)\b.*\b(real|really|alive|me)\b",
                 r"\bit'?s really me\b"]),
@@ -73,8 +78,16 @@ _BUILTIN: List[Tuple[str, List[str]]] = [
                   r"\bis (anyone|anybody|someone) (here|there)\b"]),
     ("time", [r"\bwhat(?:'s| is)? the time\b", r"\bwhat time\b", r"\btime is it\b"]),
     ("date", [r"\bwhat(?:'s| is)? (?:the |today's )?date\b", r"\bwhat day\b"]),
+    ("battery", [r"\b(battery(?: level| status| life| percentage)?|power status|how much battery)\b"]),
+    ("system_stats", [r"\b(system (?:stats|resources)|cpu (?:usage|stats)|memory usage|ram usage)\b"]),
+    ("clear_notes", [r"\b(clear|delete|erase)\s+(?:all\s+)?(?:my\s+)?notes\b"]),
+    ("list_notes", [r"\b(?:read|what are|list|show)\s+(?:my\s+)?notes\b"]),
+    ("note", [r"\b(take\s+(?:a\s+)?note|add\s+(?:a\s+)?note|new\s+note|note\s+that|remember\s+that)\b"]),
+    ("list_reminders", [r"\b(?:(?:what are my|list|show|check|any)\s+reminders|active timers)\b"]),
+    ("reminder", [r"\b(remind\s+me|set\s+(?:a\s+)?timer)\b"]),
     ("recent", [r"\b(recent|latest) (activity|events)\b", r"\bwhat happened\b"]),
     ("status", [r"\bstatus\b", r"\bhow are you\b", r"\bare you (working|ok|okay)\b", r"\bsystem check\b"]),
+    ("clear_chat", [r"\b(clear (?:our )?(?:chat|conversation|history)|forget (?:what we talked about|our conversation|our chat))\b"]),
     ("help", [r"\bhelp\b", r"\bwhat can you do\b"]),
     ("thanks", [r"\bthank(s| you)\b"]),
 ]
@@ -90,6 +103,45 @@ def extract_name(text: str) -> Optional[str]:
     words = [re.sub(r"[^a-z0-9]", "", w) for w in m.group(1).split()]
     words = [w for w in words if w][:2]
     return "_".join(w.capitalize() for w in words) or None
+
+
+_NOTE_STRIP = re.compile(
+    r"^(?:take\s+(?:a\s+)?note(?:\s+that)?|add\s+(?:a\s+)?note(?:\s+that)?|new\s+note|"
+    r"note\s+that|remember\s+that)\s*",
+    re.IGNORECASE,
+)
+
+
+def extract_note(text: str) -> Optional[str]:
+    """Extract content from phrases like 'take a note buy milk and eggs'."""
+    cleaned = _NOTE_STRIP.sub("", text).strip()
+    return cleaned or None
+
+
+def extract_reminder(text: str) -> Tuple[Optional[float], str]:
+    """Parse duration and task from phrases like 'remind me to check the oven in 10 minutes'.
+    Returns (duration_in_seconds_or_None, task_description).
+    """
+    dur_pat = re.compile(r"\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b")
+    dur_match = dur_pat.search(text)
+    duration = None
+    if dur_match:
+        val = float(dur_match.group(1))
+        unit = dur_match.group(2).lower()
+        if unit.startswith("s"):
+            mult = 1.0
+        elif unit.startswith("m"):
+            mult = 60.0
+        elif unit.startswith("h"):
+            mult = 3600.0
+        duration = val * mult
+
+    cleaned = dur_pat.sub("", text)
+    cleaned = re.sub(r"^(?:remind\s+me(?:\s+to)?|set\s+(?:a\s+)?timer(?:\s+for)?)\s*", "", cleaned)
+    cleaned = re.sub(r"^(?:(?:in|for|to)\s+)+", "", cleaned)
+    cleaned = re.sub(r"\s+(?:in|for)\s*$", "", cleaned)
+    cleaned = " ".join(cleaned.split())
+    return duration, cleaned or "timer"
 
 
 def match_wake(tokens: Sequence[str], wake_words: Sequence[str]) -> int:
@@ -145,7 +197,17 @@ class CommandRouter:
             return Command("attention", text) if woke else None
         for name, patterns in self._intents:
             if any(p.search(text) for p in patterns):
-                args = {"name": n} if name == "enroll" and (n := extract_name(text)) else {}
+                args: Dict[str, str] = {}
+                if name == "enroll" and (n := extract_name(text)):
+                    args["name"] = n
+                elif name == "note" and (nt := extract_note(text)):
+                    args["text"] = nt
+                elif name == "reminder":
+                    dur, rem_text = extract_reminder(text)
+                    if dur is not None:
+                        args["duration"] = str(dur)
+                    if rem_text:
+                        args["text"] = rem_text
                 return Command(name, text, args, woke)
         if not woke and mode is Addressing.FOLLOW_UP:
             return None  # background chatter, not a command
