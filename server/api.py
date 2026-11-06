@@ -167,7 +167,7 @@ def create_app(engine: Engine) -> FastAPI:
             ident = t.identity
             is_known = bool(ident and ident != UNKNOWN)
             details.append({
-                "track_id": t.id,
+                "track_id": getattr(t, "track_id", getattr(t, "id", 0)),
                 "identity": display(ident) if is_known else "Unknown",
                 "is_recognized": is_known,
                 "is_verified": ident in verified if is_known else False,

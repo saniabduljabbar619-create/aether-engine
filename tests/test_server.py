@@ -53,14 +53,39 @@ async def test_health_endpoint(make_engine):
 
 
 async def test_presence_endpoint(make_engine):
+    from vision.tracker import TrackState
+
     engine = await make_engine()
     app = create_app(engine)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Empty presence
         r = await client.get("/api/presence")
         assert r.status_code == 200
         data = r.json()
         assert data["count"] == 0
         assert data["people"] == []
+
+        # With active tracks in view
+        mock_track = TrackState(
+            track_id=42,
+            bbox=(10, 50, 50, 10),
+            identity="Alice_Smith",
+            score=0.92,
+            newly_identified=False,
+        )
+        engine.orch._visible = lambda: [mock_track]
+        engine.orch._visible_known = lambda: ["Alice_Smith"]
+
+        r = await client.get("/api/presence")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 1
+        assert len(data["people"]) == 1
+        assert data["people"][0]["track_id"] == 42
+        assert data["people"][0]["identity"] == "Alice Smith"
+        assert data["people"][0]["confidence"] == 0.92
+        assert data["people"][0]["is_recognized"] is True
+
     await engine.stop()
 
 
