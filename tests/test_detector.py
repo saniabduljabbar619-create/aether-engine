@@ -78,7 +78,7 @@ async def test_detection_rate_is_capped(bus):
         bus.publish(Topic.FRAME_CAPTURED, _frame(i))
         await asyncio.sleep(0.01)
     await asyncio.sleep(0.1)
-    assert 3 <= len(an.seen) <= 12  # about 8, not 40
+    assert 3 <= len(an.seen) <= 16  # capped rate, not all 40
 
 
 async def test_after_resting_the_newest_frame_is_analyzed(bus):

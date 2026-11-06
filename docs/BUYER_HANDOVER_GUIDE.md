@@ -52,6 +52,10 @@ To resell this engine under your own company or product name (e.g., *"ApexVision
    - Front-desk attendance: `GET /api/audit/export.csv?format=attendance`
    - Complete system audit log: `GET /api/audit/export.csv?format=all`
    - Download directly from the browser in the Web Management Portal.
+6. **Real-Time Voice & Multimodal Conversational API:**
+   - REST chat endpoint: `POST /api/chat` with `{"message": "who is in view?"}`
+   - Full browser voice dialogue: Web Speech Recognition (voice mic in) + Web SpeechSynthesis (spoken audio out).
+   - Supports commands, greetings, visual inquiries, and local LLM dialogue.
 
 ---
 

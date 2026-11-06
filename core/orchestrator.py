@@ -229,6 +229,52 @@ class Orchestrator:
         self.speaker.say(text)
         self._follow_until = time.monotonic() + self.follow_up_seconds  # a natural conversation continues
 
+    async def chat(self, text: str, speaker: Optional[str] = None, speak: bool = True) -> Tuple[str, str]:
+        """Conversational interface: handles commands, greetings, or LLM chat, returns (reply, intent)."""
+        clean_text = text.strip()
+        if not clean_text:
+            return "How can I help you?", "empty"
+
+        known = self._visible_known()
+        detected_speaker = speaker or (display(known[0]) if len(known) == 1 else None)
+
+        cmd = self.router.parse(clean_text, Addressing.DIRECT)
+        if cmd is None:
+            cmd = Command("unknown", clean_text, woke=True)
+
+        intent = cmd.intent
+        try:
+            if self.require_liveness and intent in self._needs_verified and not self._verified_visible():
+                reply = self._need_verification()
+            elif intent in self._handlers and intent != "unknown":
+                reply = await self._handlers[intent](cmd)
+            elif self.assistant is not None:
+                reply = await self.assistant.ask(clean_text, speaker=detected_speaker)
+            else:
+                lower = clean_text.lower()
+                if any(w in lower for w in ("hello", "hi", "hey", "greetings")):
+                    greet = f"Hello {detected_speaker}!" if detected_speaker else "Hello there!"
+                    reply = f"{greet} I am Aether. I'm actively monitoring the camera and listening."
+                elif any(w in lower for w in ("who are you", "what are you", "what is your name")):
+                    reply = "I am Aether, an on-premise multimodal edge AI engine for vision, biometric tracking, and local speech."
+                elif "how are you" in lower:
+                    reply = "I'm running smoothly with full vision tracking active. How can I assist you today?"
+                elif any(w in lower for w in ("thank you", "thanks")):
+                    reply = "You're welcome!"
+                else:
+                    reply = f"I heard '{clean_text}'. Say '{self.router.wake_name}, help' to hear available commands, or ask me who is at the camera."
+        except Exception:
+            log.exception("chat execution failed")
+            reply = "Sorry, I had trouble processing that request."
+
+        self.bus.publish(Topic.COMMAND_ISSUED, cmd)
+        self.audit.record("chat", f"User: {clean_text} | Aether: {reply}")
+        if speak and self.speaker:
+            self.speaker.say(reply)
+        self.on_reply(reply)
+        self._follow_until = time.monotonic() + self.follow_up_seconds
+        return reply, intent
+
     # ---- who is in view --------------------------------------------------
     def _visible(self):
         if self._view is None or time.monotonic() - self._view_at > VIEW_FRESH:

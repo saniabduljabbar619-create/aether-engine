@@ -90,10 +90,13 @@ async def test_open_question_goes_to_the_model_and_a_follow_up_needs_no_wake_wor
     ollama.answers = ["Paris.", "About two million people."]
     rig.orch.assistant = Assistant(OllamaClient("m", ollama.host))
     await rig.hear("aether what is the capital of france")
+    await wait_for_reply(rig, 1)
     assert rig.replies[-1] == "Paris."
     await rig.hear("and how many people live there")  # no wake word, mid-conversation
+    await wait_for_reply(rig, 2)
     assert rig.replies[-1] == "About two million people."
     await rig.hear("thanks that's all")
+    await wait_for_reply(rig, 3)
     assert rig.replies[-1] == "You're welcome."
     n = len(ollama.requests)
     await rig.hear("so what are we having for dinner")  # conversation is over: chatter is ignored again

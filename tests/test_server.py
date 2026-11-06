@@ -244,3 +244,24 @@ async def test_api_key_authentication(tmp_path):
         assert r.status_code == 200
 
     await engine.stop()
+
+
+async def test_chat_endpoint(make_engine):
+    engine = await make_engine()
+    app = create_app(engine)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Command query
+        r = await client.post("/api/chat", json={"message": "what time is it"})
+        assert r.status_code == 200
+        data = r.json()
+        assert "reply" in data
+        assert "time" in data["intent"] or len(data["reply"]) > 0
+
+        # Conversational greeting
+        r = await client.post("/api/chat", json={"message": "Hello Aether"})
+        assert r.status_code == 200
+        data = r.json()
+        assert "reply" in data
+        assert "listening" in data["reply"].lower() or "hello" in data["reply"].lower()
+
+    await engine.stop()

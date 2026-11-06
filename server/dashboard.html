@@ -145,6 +145,34 @@
     }
     .log-time { color: var(--muted); }
     .log-kind { color: var(--accent); font-weight: 600; min-width: 140px; }
+    .chat-bubble-user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 12px 12px 2px 12px;
+      max-width: 80%;
+      word-break: break-word;
+    }
+    .chat-bubble-aether {
+      align-self: flex-start;
+      background: #1e293b;
+      color: #e2e8f0;
+      border-left: 3px solid var(--accent);
+      padding: 6px 12px;
+      border-radius: 2px 12px 12px 12px;
+      max-width: 85%;
+      word-break: break-word;
+    }
+    .mic-recording {
+      animation: pulse 1.2s infinite;
+      background: #dc2626 !important;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
   </style>
 </head>
 <body>
@@ -171,13 +199,37 @@
         <div class="stream-container">
           <img id="camera-stream-img" src="/api/stream" alt="Live Camera Stream" onerror="this.src=''; this.alt='No camera stream active';">
         </div>
-        <div class="controls">
-          <input type="text" id="speak-input" placeholder="Type text for Aether to speak aloud..." style="flex: 1;">
-          <button class="primary" onclick="speakText()">Speak (TTS)</button>
+      </div>
+
+      <!-- Live Voice & Multimodal Conversation Console -->
+      <div class="card">
+        <div class="card-title">
+          <span>🎙️ Live Conversation & Voice</span>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button id="tts-toggle-btn" style="font-size: 11px; padding: 4px 8px; background: rgba(16,185,129,0.15); color: var(--accent);" onclick="toggleAudioOutput()">🔊 Voice: ON</button>
+            <button style="font-size: 11px; padding: 4px 8px;" onclick="clearChatLog()">Clear</button>
+          </div>
         </div>
-        <div class="controls" style="margin-top: 8px;">
-          <input type="text" id="cmd-input" placeholder="Execute command (e.g. 'what time is it', 'battery')..." style="flex: 1;">
-          <button onclick="sendCommand()">Run Command</button>
+
+        <!-- Chat messages container -->
+        <div id="chat-messages" style="height: 190px; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; margin-bottom: 10px;">
+          <div style="color: var(--muted); font-style: italic;">Speak using the 🎙️ mic button or type a prompt. Aether is contextually aware of who is in front of the camera, time, battery, and notes.</div>
+        </div>
+
+        <!-- Quick suggestion chips -->
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+          <button style="padding: 3px 8px; font-size: 11px; border-radius: 999px;" onclick="sendQuickPrompt('Hello Aether')">👋 Hello</button>
+          <button style="padding: 3px 8px; font-size: 11px; border-radius: 999px;" onclick="sendQuickPrompt('Who is in front of the camera?')">👁️ Who's here?</button>
+          <button style="padding: 3px 8px; font-size: 11px; border-radius: 999px;" onclick="sendQuickPrompt('What time is it?')">🕒 Time</button>
+          <button style="padding: 3px 8px; font-size: 11px; border-radius: 999px;" onclick="sendQuickPrompt('System battery and hardware status')">🔋 Battery</button>
+          <button style="padding: 3px 8px; font-size: 11px; border-radius: 999px;" onclick="sendQuickPrompt('List my notes')">📝 Notes</button>
+        </div>
+
+        <!-- Input controls -->
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="mic-btn" style="background: #3b82f6; color: #fff; width: 42px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 16px;" onclick="toggleVoiceInput()" title="Click to speak (Voice Recognition)">🎙️</button>
+          <input type="text" id="chat-input" placeholder="Type a message or click 🎙️ to speak..." style="flex: 1; height: 38px;" onkeydown="if(event.key==='Enter') sendChatMessage()">
+          <button class="primary" style="height: 38px; padding: 0 16px;" onclick="sendChatMessage()">Send</button>
         </div>
       </div>
 
@@ -408,15 +460,150 @@
 
     async function sendCommand() {
       const input = document.getElementById('cmd-input');
-      const text = input.value.trim();
+      const text = input ? input.value.trim() : '';
       if (!text) return;
       await apiFetch('/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
-      input.value = '';
+      if (input) input.value = '';
       setTimeout(loadAudit, 500);
+    }
+
+    // ---- Conversational Chat & Web Voice (STT & TTS) ----------------------
+    let audioOutputEnabled = true;
+    let recognition = null;
+    let isRecording = false;
+
+    function toggleAudioOutput() {
+      audioOutputEnabled = !audioOutputEnabled;
+      const btn = document.getElementById('tts-toggle-btn');
+      if (audioOutputEnabled) {
+        btn.textContent = '🔊 Voice: ON';
+        btn.style.color = 'var(--accent)';
+        btn.style.background = 'rgba(16, 185, 129, 0.15)';
+      } else {
+        btn.textContent = '🔇 Voice: OFF';
+        btn.style.color = 'var(--muted)';
+        btn.style.background = 'rgba(255, 255, 255, 0.05)';
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+      }
+    }
+
+    function clearChatLog() {
+      const container = document.getElementById('chat-messages');
+      container.innerHTML = '<div style="color: var(--muted); font-style: italic;">Chat cleared. Start speaking or typing...</div>';
+    }
+
+    function appendMessage(sender, text, isUser = false) {
+      const container = document.getElementById('chat-messages');
+      const div = document.createElement('div');
+      div.className = isUser ? 'chat-bubble-user' : 'chat-bubble-aether';
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      div.innerHTML = `<strong>${escapeHtml(sender)}:</strong> ${escapeHtml(text)} <span style="font-size: 10px; opacity: 0.7; margin-left: 6px;">${timeStr}</span>`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const p = document.createElement('p');
+      p.textContent = text;
+      return p.innerHTML;
+    }
+
+    function speakBrowser(text) {
+      if (!audioOutputEnabled || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Samantha')));
+      if (preferred) utterance.voice = preferred;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    async function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      appendMessage('You', text, true);
+
+      try {
+        const res = await apiFetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, speak: false })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+          appendMessage('Aether', 'Error: ' + (err.detail || 'Unable to process chat.'));
+          return;
+        }
+        const data = await res.json();
+        appendMessage('Aether', data.reply, false);
+        speakBrowser(data.reply);
+        setTimeout(loadAudit, 500);
+      } catch (err) {
+        appendMessage('Aether', 'Network error reaching conversational engine.');
+        console.error(err);
+      }
+    }
+
+    function sendQuickPrompt(promptText) {
+      document.getElementById('chat-input').value = promptText;
+      sendChatMessage();
+    }
+
+    function toggleVoiceInput() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert('Your browser does not support Web Speech Recognition. Please use Chrome, Edge, Safari, or type in the box.');
+        return;
+      }
+
+      const micBtn = document.getElementById('mic-btn');
+      if (isRecording && recognition) {
+        recognition.stop();
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = function() {
+        isRecording = true;
+        micBtn.classList.add('mic-recording');
+        micBtn.title = 'Listening... Click to stop';
+      };
+
+      recognition.onresult = function(event) {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('chat-input').value = transcript;
+        sendChatMessage();
+      };
+
+      recognition.onerror = function(event) {
+        console.warn('Speech recognition error:', event.error);
+        stopRecordingUi();
+      };
+
+      recognition.onend = function() {
+        stopRecordingUi();
+      };
+
+      function stopRecordingUi() {
+        isRecording = false;
+        micBtn.classList.remove('mic-recording');
+        micBtn.title = 'Click to speak (Voice Recognition)';
+      }
+
+      recognition.start();
     }
 
     // Initialize UI and start polling

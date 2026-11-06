@@ -478,7 +478,10 @@ async def test_reminder_commands(rig):
     assert "Active reminders" in rig.replies[-1]
 
     # Wait for the background loop to trigger the reminder
-    await asyncio.sleep(1.2)
+    for _ in range(12):
+        await asyncio.sleep(0.2)
+        if any("Reminder" in r for r in rig.replies):
+            break
     assert any("Reminder" in r for r in rig.replies)
 
 
@@ -488,4 +491,25 @@ async def test_battery_and_system_stats(rig):
 
     await rig.hear("Aether, system stats")
     assert "cpu" in rig.replies[-1].lower() or "memory" in rig.replies[-1].lower()
+
+
+async def test_orchestrator_chat_method(rig):
+    orch = rig.orch
+
+    # Command via chat
+    reply, intent = await orch.chat("what time is it")
+    assert len(reply) > 0
+    assert intent == "time"
+
+    # Greeting via chat
+    reply, intent = await orch.chat("hello Aether")
+    assert "listening" in reply.lower() or "hello" in reply.lower()
+
+    # General conversation fallback
+    reply, intent = await orch.chat("how are you doing today?")
+    assert len(reply) > 0
+
+    # Verify recorded in audit log
+    audit_events = orch.audit.recent(5)
+    assert any(e[1] == "chat" for e in audit_events)
 

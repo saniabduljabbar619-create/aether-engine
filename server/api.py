@@ -46,6 +46,12 @@ class ReminderRequest(BaseModel):
     author: Optional[str] = Field(default="", description="Optional author tag")
 
 
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="Message, question, or speech to say to Aether")
+    speaker: Optional[str] = Field(default=None, description="Optional speaker or user name")
+    speak: bool = Field(default=False, description="Whether to also speak on the host machine's physical speaker")
+
+
 def create_app(engine: Engine) -> FastAPI:
     """Create and configure the FastAPI application bound to an active Engine instance."""
     # Active WebSocket clients connected to the event feed
@@ -217,6 +223,22 @@ def create_app(engine: Engine) -> FastAPI:
             raise HTTPException(status_code=503, detail="Orchestrator not ready")
         engine.bus.publish(Topic.SPEECH_TRANSCRIBED, Transcript(req.text, "typed", 0.0, 0.0, 0.0))
         return {"status": "accepted", "command": req.text}
+
+    @app.post("/api/chat", tags=["Conversation"], dependencies=[Depends(verify_auth)])
+    async def chat(req: ChatRequest) -> Dict[str, Any]:
+        """Interactive multimodal conversation with Aether (commands, vision questions, or LLM chat)."""
+        orch = engine.orch
+        if orch is None:
+            raise HTTPException(status_code=503, detail="Orchestrator not ready")
+        reply, intent = await orch.chat(req.message, speaker=req.speaker, speak=req.speak)
+        known = orch._visible_known()
+        active_spk = req.speaker or (display(known[0]) if len(known) == 1 else None)
+        return {
+            "reply": reply,
+            "intent": intent,
+            "speaker": active_spk,
+            "timestamp": time.time(),
+        }
 
     @app.get("/api/audit", tags=["Audit & Logs"], dependencies=[Depends(verify_auth)])
     async def get_audit(limit: int = Query(default=10, ge=1, le=100)) -> Dict[str, Any]:

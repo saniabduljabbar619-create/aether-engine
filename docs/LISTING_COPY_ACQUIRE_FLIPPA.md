@@ -32,10 +32,11 @@ Unlike cloud-dependent AI tools that charge per-API call and raise serious biome
 2. **Headless REST & WebSocket API:** Production-ready FastAPI service with automated OpenAPI / Swagger documentation (`/docs`), API Key / Bearer token security, and real-time WebSocket event feeds (`/ws/events`).
 3. **Live MJPEG Video Stream (`/api/stream`):** Embed real-time annotated camera video directly into any web or mobile app with a simple `<img>` tag.
 4. **Outbound Webhook Dispatcher:** Integrates with Zapier, Slack, Discord, Make, or Home Assistant on key events (face recognized, stranger detected, liveness passed).
-5. **Modern Browser Admin Portal & CSV Reporting:** Responsive dark-mode web dashboard for camera monitoring, presence checks, face management, and 1-click CSV downloads for front-desk visitor attendance and security logs.
-6. **PySide6 Desktop Application:** Native cross-platform desktop UI for dedicated kiosk screens.
-7. **Production Docker Deployment:** 1-click `docker compose up` configuration.
-8. **Automated Test Suite:** 304 comprehensive pytest tests with zero external cloud dependencies.
+5. **Modern Browser Admin Portal & Voice Console:** Responsive dark-mode web dashboard featuring live camera feeds, 1-click CSV attendance downloads, and a real-time conversational console with browser speech-to-text (voice microphone input) and natural text-to-speech voice output.
+6. **Conversational Multimodal Chat API (`POST /api/chat`):** Two-way conversational interface combining computer vision context (who is in front of the camera), system state, and optional local LLM reasoning.
+7. **PySide6 Desktop Application:** Native cross-platform desktop UI for dedicated kiosk screens.
+8. **Production Docker Deployment:** 1-click `docker compose up` configuration.
+9. **Automated Test Suite:** 306 comprehensive pytest tests with zero external cloud dependencies.
 
 ---
 
