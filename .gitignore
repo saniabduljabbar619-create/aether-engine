@@ -9,4 +9,6 @@ models/
 dist/
 build/
 *.egg-info/
+.vscode/
+.idea/
 !storage/reference_faces/.gitkeep
