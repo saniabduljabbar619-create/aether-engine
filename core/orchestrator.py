@@ -248,21 +248,49 @@ class Orchestrator:
                 reply = self._need_verification()
             elif intent in self._handlers and intent != "unknown":
                 reply = await self._handlers[intent](cmd)
-            elif self.assistant is not None:
-                reply = await self.assistant.ask(clean_text, speaker=detected_speaker)
             else:
-                lower = clean_text.lower()
-                if any(w in lower for w in ("hello", "hi", "hey", "greetings")):
-                    greet = f"Hello {detected_speaker}!" if detected_speaker else "Hello there!"
-                    reply = f"{greet} I am Aether. I'm actively monitoring the camera and listening."
-                elif any(w in lower for w in ("who are you", "what are you", "what is your name")):
-                    reply = "I am Aether, an on-premise multimodal edge AI engine for vision, biometric tracking, and local speech."
-                elif "how are you" in lower:
-                    reply = "I'm running smoothly with full vision tracking active. How can I assist you today?"
-                elif any(w in lower for w in ("thank you", "thanks")):
-                    reply = "You're welcome!"
-                else:
-                    reply = f"I heard '{clean_text}'. Say '{self.router.wake_name}, help' to hear available commands, or ask me who is at the camera."
+                answered = False
+                reply = ""
+                if self.assistant is not None:
+                    try:
+                        reply = await self.assistant.ask(clean_text, speaker=detected_speaker)
+                        answered = bool(reply and reply.strip())
+                    except LLMError as exc:
+                        log.info("LLM unavailable, using contextual engine: %s", exc)
+
+                if not answered:
+                    lower = clean_text.lower()
+                    if any(w in lower for w in ("hello", "hi", "hey", "greetings")):
+                        greet = f"Hello {detected_speaker}!" if detected_speaker else "Hello there!"
+                        reply = f"{greet} I am Aether. I'm actively tracking the camera and ready to assist."
+                    elif any(w in lower for w in ("how do you know", "what makes you recognize", "recognize me", "identify me")):
+                        if detected_speaker:
+                            reply = f"I recognize you as {detected_speaker} using 128-dimensional biometric facial embeddings matched with high vector similarity against your enrolled profile."
+                        else:
+                            reply = "I recognize individuals using 128-dimensional facial vector embeddings matched against locally enrolled biometric profiles."
+                    elif any(w in lower for w in ("processor", "cpu", "memory", "hardware", "capacity", "specs", "system stats")):
+                        from core.system_info import get_system_resources
+                        reply = get_system_resources()
+                    elif "time" in lower or "clock" in lower or "hour" in lower:
+                        now = datetime.now()
+                        reply = f"It's {now.strftime('%I:%M %p')} on {now.strftime('%A, %B %d')}."
+                    elif any(w in lower for w in ("who am i", "my name")):
+                        reply = f"You are {detected_speaker}." if detected_speaker else "I can see a face, but you haven't enrolled yet. Say 'enroll me as [name]' to register."
+                    elif any(w in lower for w in ("who is here", "who is there", "who's there", "who is in front", "who do you see")):
+                        reply = await self._h_who_here(cmd)
+                    elif "battery" in lower or "charge" in lower or "power" in lower:
+                        reply = await self._h_battery(cmd)
+                    elif any(w in lower for w in ("who are you", "what are you", "what is your name")):
+                        reply = "I am Aether, an on-premise multimodal edge AI engine for vision, biometric tracking, and local speech."
+                    elif "how are you" in lower:
+                        reply = "I'm running smoothly with full vision tracking active. How can I assist you today?"
+                    elif any(w in lower for w in ("thank you", "thanks")):
+                        reply = "You're welcome!"
+                    else:
+                        if self.assistant is not None:
+                            reply = f"I heard '{clean_text}'. My local Ollama model is currently offline, but you can ask about presence, time, battery, notes, or say help."
+                        else:
+                            reply = f"I heard '{clean_text}'. Say '{self.router.wake_name}, help' to hear available commands, or ask me about what I see."
         except Exception:
             log.exception("chat execution failed")
             reply = "Sorry, I had trouble processing that request."
